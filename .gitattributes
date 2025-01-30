@@ -1,0 +1,5 @@
+. !text !filter !merge !diff
+* !text !filter !merge !diff
+example_files/* filter=lfs diff=lfs merge=lfs -text
+example_files/results/gene_human/primary/* filter=lfs diff=lfs merge=lfs -text
+example_files/results/pileups/* filter=lfs diff=lfs merge=lfs -text
