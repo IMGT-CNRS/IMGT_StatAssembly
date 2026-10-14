@@ -1,6 +1,6 @@
 # IMGT/StatAssembly
 
-[[![zenodo](https://zenodo.org/badge/DOI/10.5281/zenodo.15016809.svg)](https://zenodo.org/doi/10.5281/zenodo.15016809)](https://doi.org/10.5281/zenodo.23363623)
+[[[![zenodo](https://zenodo.org/badge/DOI/10.5281/zenodo.15016809.svg)](https://zenodo.org/doi/10.5281/zenodo.15016809)](https://doi.org/10.5281/zenodo.23363623)](https://doi.org/10.5281/zenodo.23363623)
 ![GitLab Release](https://img.shields.io/gitlab/v/release/imgt-igh%2Fstatassembly?gitlab_url=https%3A%2F%2Fsrc.koda.cnrs.fr)
 ![GitHub Release](https://img.shields.io/github/v/release/IMGT-CNRS/IMGT_StatAssembly)
 
