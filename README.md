@@ -1,8 +1,8 @@
 # IMGT/StatAssembly
 
-[![zenodo](https://zenodo.org/badge/DOI/10.5281/zenodo.15016809.svg)](https://zenodo.org/doi/10.5281/zenodo.15016809)
+[[![zenodo](https://zenodo.org/badge/DOI/10.5281/zenodo.15016809.svg)](https://zenodo.org/doi/10.5281/zenodo.15016809)](https://doi.org/10.5281/zenodo.23363623)
 ![GitLab Release](https://img.shields.io/gitlab/v/release/imgt-igh%2Fstatassembly?gitlab_url=https%3A%2F%2Fsrc.koda.cnrs.fr)
-![GitLab License](https://img.shields.io/gitlab/license/imgt-igh%2Fstatassembly?gitlab_url=https%3A%2F%2Fsrc.koda.cnrs.fr%2F)
+![GitHub Release](https://img.shields.io/github/v/release/IMGT-CNRS/IMGT_StatAssembly)
 
 IMGT/StatAssembly uses BAM files to assess the quality of the IG/TR loci in assemblies and to validate new alleles.
 
