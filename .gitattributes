@@ -2,4 +2,5 @@ example_files filter=lfs diff=lfs merge=lfs -text
 example_files/* filter=lfs diff=lfs merge=lfs -text
 example_files/results/* filter=lfs diff=lfs merge=lfs -text
 example_files/results/gene_primary/* filter=lfs diff=lfs merge=lfs -text
+example_files/results/gene_primary/pileups/* filter=lfs diff=lfs merge=lfs -text
 example_files/results/pileups/* filter=lfs diff=lfs merge=lfs -text
