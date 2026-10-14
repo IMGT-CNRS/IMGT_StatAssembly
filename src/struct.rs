@@ -15,10 +15,10 @@ use clap::{Parser, ValueEnum, crate_authors};
 use extended_htslib::bam::IndexedReader;
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use plotters::backend::{BitMapBackend, SVGBackend};
+use plotters::backend::{BitMapBackend, DrawingBackend, SVGBackend};
 use plotters::coord::Shift;
 use plotters::drawing::DrawingArea;
-use serde::ser::SerializeTupleStruct;
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, de};
 use serde_with::serde_as;
 use std::cmp::Ordering;
@@ -117,13 +117,16 @@ pub(crate) struct Args {
     /// No legend on graphs
     #[arg(long)]
     pub(crate) nolegend: bool,
+    /// Split sequences (one per haplotype/loci instead of a big one)
+    #[arg(long)]
+    pub(crate) splitfasta: bool,
     /// Get supplementary and secondary alignments on gene graphs as well
     #[arg(long)]
     pub(crate) allreads: bool,
     /// Save as SVG images (create big images)
     #[arg(long)]
     pub(crate) svg: bool,
-    ///Species name (must match NCBI taxonomy aka scientific name, common name or taxon ID), used for filenames.
+    ///Species name (must match NCBI taxonomy aka scientific name, common name or taxon ID), used for filenames and BLAST.
     #[arg(short, long)]
     pub(crate) species: String,
     ///Gene location (csv file). See example file for blueprint.
@@ -179,10 +182,7 @@ pub(crate) trait Positionstrand {
     fn getcorrectstrand(&mut self) {
         let val = match self.getstrand() {
             Strand::Unknown if self.getpositionstart() > self.getpositionend() => {
-                let (start, end) = (
-                    self.getpositionend().clone(),
-                    self.getpositionstart().clone(),
-                );
+                let (start, end) = (*self.getpositionend(), *self.getpositionstart());
                 self.setpositionstart(Position::new(true, 0))
                     .unwrap_or_else(|_| unreachable!("Position is 0"));
                 self.setpositionend(end)
@@ -233,34 +233,75 @@ impl<'a> Backend<'a> {
         matches!(self, Self::Png(_))
     }
 }
-pub(crate) struct DrawingImage<'a> {
+pub(crate) struct DrawingImage<'a, T, E>
+where
+    T: DrawingBackend,
+    E: DrawingBackend,
+{
+    pub(crate) mainsvgtop: Option<DrawingArea<T, Shift>>,
+    pub(crate) mainpngtop: Option<DrawingArea<E, Shift>>,
+    pub(crate) mainsvgbottom: Option<DrawingArea<T, Shift>>,
+    pub(crate) mainpngbottom: Option<DrawingArea<E, Shift>>,
     pub(crate) readresulttop: Option<Backend<'a>>,
     pub(crate) readresultbottom: Option<Backend<'a>>,
     pub(crate) mismatchtop: Option<Backend<'a>>,
     pub(crate) mismatchbottom: Option<Backend<'a>>,
 }
-impl<'a> DrawingImage<'a> {
-    pub(crate) fn gettop(self) -> (Option<Backend<'a>>, Option<Backend<'a>>, DrawingImage<'a>) {
+impl<'a, T, E> DrawingImage<'a, T, E>
+where
+    T: DrawingBackend,
+    E: DrawingBackend,
+{
+    /// Force ownership because won't work after present once in Svg
+    pub(crate) fn makeimage(self) -> Result<(), String> {
+        match (
+            self.mainsvgbottom,
+            self.mainsvgtop,
+            self.mainpngtop,
+            self.mainpngbottom,
+        ) {
+            (Some(a), Some(b), ..) => a
+                .present()
+                .and_then(|_| b.present())
+                .map_err(|d| d.to_string()),
+            (.., Some(a), Some(b)) => a
+                .present()
+                .and_then(|_| b.present())
+                .map_err(|d| d.to_string()),
+            _ => Err("Invalid graph root to draw".to_string()),
+        }
+    }
+    pub(crate) fn gettop(
+        self,
+    ) -> (
+        Option<Backend<'a>>,
+        Option<Backend<'a>>,
+        DrawingImage<'a, T, E>,
+    ) {
         (
             self.readresulttop,
             self.mismatchtop,
             DrawingImage {
                 readresulttop: None,
-                mismatchbottom: self.mismatchbottom,
-                readresultbottom: self.readresultbottom,
                 mismatchtop: None,
+                ..self
             },
         )
     }
-    pub(crate) fn getbottom(self) -> (Option<Backend<'a>>, Option<Backend<'a>>, DrawingImage<'a>) {
+    pub(crate) fn getbottom(
+        self,
+    ) -> (
+        Option<Backend<'a>>,
+        Option<Backend<'a>>,
+        DrawingImage<'a, T, E>,
+    ) {
         (
             self.readresultbottom,
             self.mismatchbottom,
             DrawingImage {
                 readresultbottom: None,
                 mismatchbottom: None,
-                readresulttop: self.readresulttop,
-                mismatchtop: self.mismatchtop,
+                ..self
             },
         )
     }
@@ -290,6 +331,16 @@ impl Filecrea {
     /// Does not work for temp files
     pub(crate) fn keep(&mut self) {
         self.delete = false;
+    }
+    #[allow(unused)]
+    pub(crate) fn transformtempintofile(mut self) -> Option<Self> {
+        // Replace file by something else so it can dropped
+        let file = std::mem::replace(&mut self.file, Filechoice::Temp(NamedTempFile::new().ok()?));
+        if let Filechoice::Temp(e) = file {
+            Some(Self::createfrompath(e.keep().ok()?.1))
+        } else {
+            None
+        }
     }
     #[allow(unused)]
     pub(crate) fn istemp(&self) -> bool {
@@ -396,7 +447,7 @@ impl PartialOrd for LocusHaplo {
 }
 impl Ord for LocusHaplo {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.getlocus().cmp(&other.getlocus()) {
+        match self.getlocus().cmp(other.getlocus()) {
             Ordering::Equal => self.haplo.cmp(&other.haplo),
             ord => ord,
         }
@@ -1731,6 +1782,15 @@ pub(crate) enum Haplotype {
     Primary,
     Alternate,
 }
+impl Not for Haplotype {
+    type Output = Self;
+    fn not(self) -> Self::Output {
+        match self {
+            Haplotype::Primary => Haplotype::Alternate,
+            Haplotype::Alternate => Haplotype::Primary,
+        }
+    }
+}
 impl FromStr for Haplotype {
     type Err = String;
 
@@ -1775,6 +1835,10 @@ impl Display for Haplotype {
 impl Haplotype {
     pub(crate) fn isprimary(&self) -> bool {
         self == &Haplotype::Primary
+    }
+    #[allow(dead_code)]
+    pub(crate) fn isalternate(&self) -> bool {
+        self == &Haplotype::Alternate
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -1922,7 +1986,7 @@ impl GeneInfos {
     where
         T: AsRef<[u8]>,
     {
-        let gene = self.settoname(&spec);
+        let gene = self.settoname(spec);
         fasta.write(&gene.to_string(), None, seq.as_ref())
     }
     pub(crate) fn extractsequence(
@@ -2357,7 +2421,7 @@ impl Ord for Genehit {
 }
 impl PartialOrd for Genehit {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 impl Genehit {
@@ -2371,9 +2435,15 @@ impl Genehit {
         construct.reserve_exact(list.len());
         for gene in list {
             let find = hit.iter().find(|p| {
-                let genesubject = GeneInfos::from(gene.clone()).settoname(&realspecies);
+                let genesubject = GeneInfos::from(gene.clone()).settoname(realspecies);
+                //todo!("When it is full hit, depends on position and score");
                 p.getsubject() == genesubject.to_string()
-            });
+                    || (gene.getchromosome() == p.getsubject()
+                        && i64::try_from(p.sstart)
+                            .is_ok_and(|val| val == gene.getstart().getobasedpos())
+                        && i64::try_from(p.send)
+                            .is_ok_and(|val| val == gene.getend().getobasedpos()))
+            }); //Full gene match or assembly match
             let new = Self::new(gene.clone(), find.cloned());
             construct.push(new);
         }
@@ -2657,14 +2727,18 @@ impl FakeLocusinfo {
     }
     pub(crate) fn intoloc(self) -> io::Result<LocusInfos> {
         match (&self.contig, self.start, self.end) {
-            (Some(a), Some(b), Some(c)) if !self.checkauto() => Ok(LocusInfos::new(
-                self.locus,
-                self.haplotype.unwrap_or_default(),
-                a.clone(),
-                b,
-                c,
-                self.strand,
-            )),
+            (Some(a), Some(b), Some(c)) if !self.checkauto() => {
+                let mut n = LocusInfos::new(
+                    self.locus,
+                    self.haplotype.unwrap_or_default(),
+                    a.clone(),
+                    b,
+                    c,
+                    self.strand,
+                );
+                n.getcorrectstrand();
+                Ok(n)
+            }
             _ => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "No assembly given with auto locus",
@@ -2721,13 +2795,13 @@ impl Serialize for LocusInfos {
         if new.strand.isrev() {
             (new.start, new.end) = (self.end, self.start)
         };
-        let mut se = serializer.serialize_tuple_struct("LocusInfos", 6)?;
-        se.serialize_field(&new.locusinfo.locus)?;
-        se.serialize_field(&new.locusinfo.haplo)?;
-        se.serialize_field(&new.contig)?;
-        se.serialize_field(&new.start)?;
-        se.serialize_field(&new.end)?;
-        se.serialize_field(&new.status)?;
+        let mut se = serializer.serialize_struct("LocusInfos", 6)?;
+        se.serialize_field("locus", &new.locusinfo.locus)?;
+        se.serialize_field("haplotype", &new.locusinfo.haplo)?;
+        se.serialize_field("contig", &new.contig)?;
+        se.serialize_field("start", &new.start)?;
+        se.serialize_field("end", &new.end)?;
+        se.serialize_field("status", &new.status)?;
         se.end()
     }
 }

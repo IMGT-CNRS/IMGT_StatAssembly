@@ -45,23 +45,36 @@ cd statassembly
 cargo run --release
 ```
 
-## Execution  (Test)
+### Docker
+
+You can use docker to build the software without rust installed:
+
+```bash
+docker run --rm -it -v $(pwd)/output:/host doriancoding/imgt-statassembly
+```
+
+The zip containing the script would be in ``/output`` in current folder.
+
+## Execution (Test)
 
 Here is the command to execute with example files from the repository folder on linux 64bits:
 
 ```bash
-binaries/IMGT_StatAssembly_linux_x64_86 --totalread --extractedlength 4772468 -a example_files/assembly.fasta -f example_files/CHM13v2.0.bam -s human -z=results/locus.bam -l example_files/CHM13v2.0geneloc.csv -o results/ full
+binaries/IMGT_StatAssembly_linux_x64_86 --totalread --extractedlength 4772468 -a example_files/assembly.fasta -p -z -f example_files/CHM13v2.0.bam -s human -l example_files/CHM13v2.0loc.csv -g example_files/CHM13v2.0geneloc.csv --splitfasta -o results/ full
 ```
 
 The list of arguments used in the example (more available in software help):
 
-* ```-f``` is the BAM file with its index (in the same folder) (see [BAM file generation](##generation-of-a-bam-file))
-* ```-s``` is the species
-* --totalread to get read mismatch rate
-* ```-l``` is the locus file (see [input file section](#script-input-files-and-data))
-* ```--extractedlength``` is the length of the extracted assembly from the BAM file if it is partial/truncated, else it is automatically calculated.
-* ```-g``` is the gene list file (see [input file section](#script-input-files-and-data))
-* ```-o``` is the path of the folder to put results (would be created if not existing and overwritten if existing)
+* ``-f`` is the BAM file with its index (in the same folder) (see [BAM file generation](##generation-of-a-bam-file))
+* ``-s`` is the species
+* ``--totalread`` to get read mismatch rate
+* ``--splitfasta`` to split fasta sequence
+* ``-z`` to create a small output BAM file
+* ``-p`` for pileups.
+* ``-l`` is the locus file (see [input file section](#script-input-files-and-data))
+* ``--extractedlength`` is the length of the extracted assembly from the BAM file if it is partial/truncated, else it is automatically calculated.
+* ``-g`` is the gene list file (see [input file section](#script-input-files-and-data))
+* ``-o`` is the path of the folder to put results (would be created if not existing and overwritten if existing)
 
 The script should last around 30 seconds.
 
@@ -84,7 +97,6 @@ The script has three different command (last argument):
 - `analyze` allows the analysis of IG/TR loci and genes.
 - `full` launches find command then analyze command.
 
-
 ### Find
 
 By giving the assembly, you can generate the gene list and the locus position. The BAM file is not required for this part only.
@@ -101,7 +113,7 @@ The script will fail if the assembly is not indexed. To index it, use samtools:
 samtools faidx assembly.fasta
 ```
 
-### Analyze 
+### Analyze
 
 * The BAM file (-f) from analysis and its index, the presence of a cigar with `=`/`X` (match; substitution), a MD tag or a cs tag is recommended. *Some analysis won't be available without it*. The use of HiFi reads should be preferred as short or noisy reads might give confusing results.
 
@@ -151,7 +163,6 @@ The contig name has to match reference ID, start and end should match SAM region
 
 Strand can be 0 or 1 (reverse), + or - (reverse), plus or minus (reverse). Strand is related to the chromosome.
 Chromosome, start and end should be 1-based position. *Start should be less than end (else start and end are swapped without changing the strand)*.
-
 
 Example in test files.
 
@@ -221,7 +232,8 @@ Submission to IMGT&reg; from the software is not currently implemented and the `
 For each assembly (in the graph named readresult.png) and for each allele (if applicable), the color of the graph would give information in the assembly and/or allele validates [IMGT&reg; criterias](#results-analysis).
 
 > [!TIP]
-> The images provided can also be created as svg file with ```--svg``` argument.
+> The images provided can also be created as svg file with ``--svg`` argument.
+
 <details>
 <summary>Description</summary>
 
@@ -240,15 +252,17 @@ For each assembly (in the graph named readresult.png) and for each allele (if ap
 - *newloc.csv*: contains locus information with status (Accepted/Rejected).
 - *sequence.fasta.gz*: contains extracted sequence of all identified loci (compressed).
 - *validatedalleles.fasta*: contains the list of all alleles (with their closest IMGT/GENE-DB match) that are validated, as well as their locus.
-- **genelist_new.csv*: gives a gene list for all loci (if not provided) based on closest IMGT/GENE-DB match. It does not provide gene status which is in ```gene_analysis.csv```.
+- **genelist_new.csv*: gives a gene list for all loci (if not provided) based on closest IMGT/GENE-DB match. It does not provide gene status which is in ``gene_analysis.csv``.
 
 For each read matching perfectly the gene, a score is assigned. The sum is the realreads100m score. The score is rounded in the graph. This score is the average PHRED score quality of the read at the gene position:
+
 - Phred score unknown or less than 10 gives 0,
 - Phred score between 11 and 20 gives 0.1 ($`\frac{1}{10}=10% `$),
 - Between 21 and 30 gives 0.3 (($`\frac{3}{10}`=30% `$)),
 - Between 31 and 40 gives 0.7 (($`\frac{7}{10}`=70% `$)),
 - Between 41 and 50 gives 0.9 (($`\frac{9}{10}`=90% `$)),
 - Above 51, the score is maximal: 1 ($`\frac{10}{10}`=100% `$).
+
 </details>
 
 ### Results analysis
@@ -257,10 +271,12 @@ For a better overview of IMGT&reg; rules based on this analysis, check [IMGT&reg
 
 > [!NOTE]
 > For `readresult.png` and each allele graph, the color of the graph would indicate if the locus and/or gene meets IMGT&reg; criterias.
-> - [x] ![#c5f015](https://placehold.co/15x15/c5f015/c5f015.png) Green for validation
-> - [ ] ![#f03c15](https://placehold.co/15x15/f03c15/f03c15.png) Red for rejection
+>
+> - [X] ![<span class=](https://placehold.co/15x15/c5f015/c5f015.png)#c5f015#c5f015" /> Green for validation
+> - [ ] ![<span class=](https://placehold.co/15x15/f03c15/f03c15.png)#f03c15#f03c15" /> Red for rejection
 >
 > Criterias are as followed:
+>
 > * For locus: Number of reads ($x$) inside the window coverage ($m$) $max(10,\frac{m}{2})<x<2m$ and soft clips less than 40%. Telomeric region (10 kb) is not taken into account.
 > * For genes: At least 10 matching reads and no suspicious or warning positions and soft clips less than 40%.
 
@@ -299,9 +315,7 @@ The [Rust crab](https://www.rustacean.net/) is under [CC0 1.0 Universal](https:/
 
 The script tries to use as less memory as possible. However the memory consumption depends on the use of rmmap and BLAST and if locus and gene position were provided. Here is a memory graph for example file when locus and genes are provided, it does not count BLAST memory consumption:
 ![Memory consumption](/images/memory_example.png)
-And when there are not provided (arg ```--lowmemory``` set):
+And when there are not provided (arg ``--lowmemory`` set):
 ![Memory consumption](/images/memory.png)
-
-
 
 [^1]: TRD is inside TRA locus and so both loci are analyzed together.

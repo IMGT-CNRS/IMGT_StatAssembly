@@ -1,3 +1,25 @@
+## v2.1.0 - 2026-09-21
+
+## Updates
+
+- Alter output CS file setting CS tag.
+- Allow separation of sequences generated.
+- File with alleles BLAST
+
+## Fixed
+
+- Correction of bornes temp
+- Correction of alleles blast
+
+
+## v2.0.2 - 2026-09-15
+
+### Fixed
+
+- Clippy correction
+- Fix bornes and locus delimitation
+- Both haplotype of a same locus cannot be on the same chromosome anymore
+
 ## v2.0.1 - 2026-08-20
 
 ### Fixed

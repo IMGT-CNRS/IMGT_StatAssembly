@@ -5,24 +5,29 @@ Made by: Guilhem Zeitoun and IMGT Team
 */
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
 mod tests {
     use std::{
         collections::BTreeMap,
-        fs,
-        io::{BufReader, Cursor, ErrorKind::UnexpectedEof, Read as read2, Seek},
+        fs::{self},
+        io::{BufRead, BufReader, Cursor, ErrorKind::UnexpectedEof, Read as read2, Seek, Write},
         path::{Path, PathBuf},
+        process::{Command, Stdio},
+        slice,
         thread::sleep,
         time::Duration,
     };
 
     use crate::{
         extractgenelist, filtervalidatedallelesrecreate, generategeneinfos, getorsetparams,
-        getreaderoffile,
+        getreaderoffile, givename,
         identification::{sendresult, sendresultcompressed},
-        locusposparser, posread, printvalidatedallelesraw,
+        locusposparser,
+        pileup::checksamtools,
+        posread, printvalidatedallelesraw,
         r#struct::{
-            Args, Filecrea, Genehit, Genename, GenesList, Haplotype::Primary, HashMapinfo,
-            LocusHaplo, LocusInfos, Positionstrand, Species, SpeciesError,
+            Args, FakeLocusinfo, Filecrea, Genehit, Genename, GenesList, Haplotype::Primary,
+            HashMapinfo, LocusHaplo, LocusInfos, Positionstrand, Species, SpeciesError,
         },
         submissions::{
             BORNESLINK, RELEASELINK, REQUESTCLIENT, checkifblastpresent, decompressseq,
@@ -35,7 +40,9 @@ mod tests {
         ext::BamRecordExtensions,
         pileup::{RustPileupConfig, RustPileups},
     };
-    use itertools::Itertools;
+    use itertools::{Itertools, zip_eq};
+    #[allow(unused)]
+    use num_format::{Locale, ToFormattedString};
     use tempfile::{NamedTempFile, TempDir};
     #[test]
     fn checkblast() {
@@ -45,11 +52,11 @@ mod tests {
     #[allow(non_snake_case)]
     fn checkIMGTservers() {
         assert!(
-            sendresult(&REQUESTCLIENT, &RELEASELINK).is_ok(),
+            sendresult(&REQUESTCLIENT, &RELEASELINK, true).is_ok(),
             "Error with release link"
         );
         assert!(
-            sendresultcompressed(&REQUESTCLIENT, &BORNESLINK).is_ok(),
+            sendresultcompressed(&REQUESTCLIENT, &BORNESLINK, true).is_ok(),
             "Error with bornes link"
         );
     }
@@ -107,18 +114,131 @@ mod tests {
             .unwrap();
         let (mut locus, ..) = locusposparser(&args4, &human, false).unwrap();
         locus.sort_unstable(); //Because sorted in mergedlocus function
-        let seq = generatesequence(&args4, testo.path(), true, &locus).unwrap();
-        let mut bufone =
-            BufReader::new(std::fs::File::open("example_files/results/sequence.fasta.gz").unwrap());
-        let mut buftwo = BufReader::new(seq.getfile().unwrap());
+        let matcher = |name: &Path, locus: &[LocusInfos]| {
+            let seq = generatesequence(&args4, testo.path(), true, locus, None).unwrap();
+            let mut bufone = BufReader::new(std::fs::File::open(name).unwrap());
+            let mut buftwo = BufReader::new(seq.getfile().unwrap());
+            loop {
+                let mut buf1 = [0; 4096];
+                let mut buf2 = buf1;
+                match (bufone.read_exact(&mut buf1), buftwo.read_exact(&mut buf2)) {
+                    (Err(a), Err(b)) if b.kind() == UnexpectedEof && a.kind() == UnexpectedEof => {
+                        break;
+                    }
+                    (Ok(_), Ok(_)) if buf1.eq(&buf2) => (),
+                    (Ok(_), Ok(_)) => {
+                        panic!("Buffer does not have same value.");
+                    }
+                    _ => panic!("Fails with buffer"),
+                }
+            }
+        };
+        let merged = Path::new("example_files/results/sequence.fasta.gz");
+        if fs::exists(merged).is_ok_and(|f| f) {
+            //No split, one check
+            matcher(merged, &locus);
+        } else {
+            //Split multiple checks
+            locus.into_iter().for_each(|loc| {
+                let name = Path::new("example_files/results").join(givename(
+                    &human,
+                    loc.getlocus(),
+                    loc.getcontig(),
+                    loc.gethaplotype().isprimary(),
+                    "sequence.fasta.gz",
+                    false,
+                ));
+                if !fs::exists(&name).is_ok_and(|f| f) {
+                    panic!("File {} does not exist", name.display());
+                }
+                let vec = vec![loc];
+                matcher(&name, vec.as_slice());
+            });
+        }
+    }
+    #[test]
+    fn samtoolsseq() {
+        checksamtools().unwrap();
+        let testo = TempDir::new().unwrap();
+        let fake_args = vec![
+            "IMGT_StatAssembly",
+            "-f",
+            "example_files/CHM13v2.0.bam",
+            "-a",
+            "example_files/assembly.fasta",
+            "-l",
+            "example_files/CHM13v2.0loc.csv",
+            "-s",
+            "human",
+            "-g",
+            "example_files/CHM13v2.0geneloc.csv",
+            "-o",
+            testo.path().to_str().unwrap(),
+            "analyze",
+        ];
+        let human = Species::newunchecked("Homo sapiens");
+        let args4 = Args::try_parse_from(fake_args)
+            .map_err(|f| f.to_string())
+            .unwrap();
+        let (locus, _, _) = locusposparser(&args4, &human, false).unwrap();
+        let first = locus.first().unwrap();
+        let mut args: Vec<String> = vec!["faidx", "-n", "100", "example_files/assembly.fasta"]
+            .into_iter()
+            .map(|b| b.to_string())
+            .collect();
+        if first.getstrand().isrev() {
+            let text = [
+                "-i".to_string(),
+                format!(
+                    "{}:{}-{}",
+                    first.getcontig(),
+                    first.getpositionstart().getobasedpos(),
+                    first.getpositionend().getobasedpos()
+                ),
+            ];
+            args.extend_from_slice(&text);
+        } else {
+            let text = [format!(
+                "{}:{}-{}",
+                first.getcontig(),
+                first.getpositionstart().getobasedpos(),
+                first.getpositionend().getobasedpos()
+            )];
+            args.extend_from_slice(&text);
+        };
+        let pipe = Stdio::piped();
+        let file = Filecrea::createtemp(None::<PathBuf>, None).unwrap();
+        let fileraw = Stdio::from(file.setfile().unwrap());
+        let output = Command::new("samtools")
+            .args(args)
+            .stdout(fileraw)
+            .stderr(pipe)
+            .output()
+            .unwrap();
+        if !output.status.success() {
+            panic!(
+                "Error with samtools: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        let seq = generatesequenceraw(&args4, slice::from_ref(first)).unwrap();
+        let mut bufone = BufReader::new(seq).take(10_000_000);
+        let mut buftwo = BufReader::new(file.getfile().unwrap()).take(10_000_000);
+        let mut del = String::new();
+        let _ = bufone.read_line(&mut del);
+        let _ = buftwo.read_line(&mut del); //Delete the header that is different
         loop {
             let mut buf1 = [0; 2048];
             let mut buf2 = [0; 2048];
             match (bufone.read_exact(&mut buf1), buftwo.read_exact(&mut buf2)) {
                 (Err(a), Err(b)) if b.kind() == UnexpectedEof && a.kind() == UnexpectedEof => break,
-                (Ok(_), Ok(_)) if buf1.eq(&buf2) => (),
+                (Ok(_), Ok(_)) if buf1.eq_ignore_ascii_case(&buf2) => (),
                 (Ok(_), Ok(_)) => {
-                    panic!("Buffer does not have same value.");
+                    panic!(
+                        "Invalid buffer.\n{}\n{}",
+                        String::from_utf8_lossy(&buf1),
+                        String::from_utf8_lossy(&buf2)
+                    );
                 }
                 _ => panic!("Fails with buffer"),
             }
@@ -159,13 +279,98 @@ mod tests {
         sleep(Duration::new(3, 0)); //Sleep for NCBI
         let pongo = Species::new("pongo");
         let expected = "The term used is not a species or an subspecies.".to_string();
-        if let Err(e) = &pongo
-            && e == &SpeciesError::Invalid(expected)
+        if !pongo
+            .as_ref()
+            .is_err_and(|e| e == &SpeciesError::Invalid(expected))
         {
-            ()
-        } else {
             panic!("Pongo should be blocked. Got {:?}", pongo.as_ref());
         }
+    }
+    #[cfg(feature = "pileup")]
+    #[test]
+    fn testpileup() {
+        use crate::givename;
+        use crate::pileup::commandlinepileup;
+        let testo = TempDir::new().unwrap();
+        let fake_args = vec![
+            "IMGT_StatAssembly",
+            "-f",
+            "example_files/CHM13v2.0.bam",
+            "-a",
+            "example_files/assembly.fasta",
+            "-l",
+            "example_files/CHM13v2.0loc.csv",
+            "-s",
+            "human",
+            "-g",
+            "example_files/CHM13v2.0geneloc.csv",
+            "-o",
+            testo.path().to_str().unwrap(),
+            "analyze",
+        ];
+        let human = Species::newunchecked("Homo sapiens");
+        let args4 = Args::try_parse_from(fake_args)
+            .map_err(|f| f.to_string())
+            .unwrap();
+        let (locus, ..) = locusposparser(&args4, &human, false).unwrap();
+        commandlinepileup(&human, &args4, &locus).unwrap();
+        let hash = [
+            "e643dd87efe1c3a51c7580024491ff69748df45e7cef03e1dd85abbefa5ed399",
+            "Homo_sapiens_IGH_NC_060938.1-primary_pileup.txt",
+            "edee5404587c87f5c7007d9149a44570644eb9e6c0a2582343f75db716c1dadb",
+            "Homo_sapiens_IGK_NC_060926.1-primary_pileup.txt",
+            "d233f69a6475e00c864f3da60281e3881b90444d69d4c85e0aef48bc15a373e6",
+            "Homo_sapiens_IGL_NC_060946.1-primary_pileup.txt",
+            "9cf027e0d092d1e1167606d03a481e7c5a6209eb0caabfa80b7e5ee308cdcdd9",
+            "Homo_sapiens_TRB_NC_060931.1-primary_pileup.txt",
+        ];
+        assert_eq!(locus.len(), hash.len().saturating_div(2), "Lack of locus");
+        for loc in locus {
+            let name = givename(
+                &human,
+                loc.getlocus(),
+                loc.getcontig(),
+                loc.gethaplotype().isprimary(),
+                "pileup.txt",
+                false,
+            )
+            .to_string();
+            let hashindex = hash
+                .iter()
+                .find_position(|p| p.eq_ignore_ascii_case(&name))
+                .unwrap()
+                .0
+                .checked_sub(1)
+                .unwrap();
+            let hashval = hash.get(hashindex).unwrap();
+            let mut file = Filecrea::createfrompath(Path::join(
+                &Path::join(&args4.outdir, "pileups"),
+                PathBuf::from(name),
+            ))
+            .getfile()
+            .unwrap();
+            let mut val = Vec::new();
+            file.read_to_end(&mut val).unwrap();
+            let mut digest = [0u8; 32];
+            #[allow(unsafe_code)]
+            unsafe {
+                use openssl_sys::SHA256;
+
+                let _ = SHA256(val.as_ptr(), val.len(), digest.as_mut_ptr());
+            }
+            assert_eq!(
+                digest.iter().fold(
+                    String::with_capacity(digest.len().saturating_mul(2)),
+                    |mut acc, f| {
+                        acc.push_str(format!("{f:02x}").as_str());
+                        acc
+                    }
+                ),
+                *hashval,
+                "Hash is invalid."
+            );
+        }
+        let _ = testo.close();
     }
     #[test]
     fn testlocusparsing() {
@@ -181,8 +386,8 @@ mod tests {
         for line in val.deserialize().take(5000) {
             data.push(line.unwrap());
         }
-        assert_eq!(data.iter().nth(3069).unwrap().qual, Some(80), "Issue");
-        assert!(data.iter().nth(1022).unwrap().qual.is_none(), "Issue");
+        assert_eq!(data.get(3069).unwrap().qual, Some(80), "Issue");
+        assert!(data.get(1022).unwrap().qual.is_none(), "Issue");
     }
     #[test]
     fn testbam() {
@@ -214,7 +419,7 @@ mod tests {
             .unwrap();
         let spec = Species::newunchecked(&args4.species);
         let (result, _blast, _release) = match locusposparser(&args4, &spec, true) {
-            Err(e) => panic!("Error is {e}"),
+            Err(e) => panic!("Error is {}", e),
             Ok(a) => a,
         };
         generatelightbam(
@@ -243,6 +448,110 @@ mod tests {
         }
         if !activ {
             panic!("No records found");
+        }
+    }
+    #[test]
+    fn findlocustest() {
+        let testo = TempDir::new().unwrap();
+        // Fake args as a Vec<&str>
+        let fake_args = vec![
+            "IMGT_StatAssembly",
+            "-f",
+            "example_files/CHM13v2.0.bam",
+            "-a",
+            "example_files/assembly.fasta",
+            "--totalread",
+            "--haploid",
+            "-s",
+            "human",
+            "-g",
+            "example_files/CHM13v2.0geneloc.csv",
+            "-o",
+            testo.path().to_str().unwrap(),
+            "analyze",
+        ];
+        let args4 = Args::try_parse_from(fake_args)
+            .map_err(|f| f.to_string())
+            .unwrap();
+        let spec = Species::newunchecked("Homo sapiens");
+        let (result, _blast, _release) = locusposparser(&args4, &spec, true).expect("Error is {e}");
+        let mut parser = Cursor::new(Vec::new());
+        parser
+            .write_all(
+                "IGH,Primary,NC_060938.1,101161300,99830032
+IGK,Primary,NC_060926.1,90800947,88856370
+IGL,Primary,NC_060946.1,22434727,23355823
+TRA,Primary,NC_060938.1,15819887,16749884
+TRB,Primary,NC_060931.1,143603418,144178945
+TRG,Primary,NC_060931.1,38524763,38315134"
+                    .as_bytes(),
+            )
+            .unwrap();
+        parser.rewind().unwrap();
+        let mut real: Vec<FakeLocusinfo> = Vec::new();
+        let mut read = csv::ReaderBuilder::new()
+            .delimiter(b',')
+            .comment(Some(b'#'))
+            .has_headers(false)
+            .flexible(true)
+            .from_reader(parser);
+        for entry in read.deserialize() {
+            let p = entry.unwrap();
+            real.push(p);
+        }
+        let real = real.into_iter().map(|b| b.intoloc().unwrap()).collect_vec();
+        for (locone, loctwo) in zip_eq(result, real) {
+            assert_eq!(
+                locone.getcontig(),
+                loctwo.getcontig(),
+                "Contig for locus {} is different.",
+                locone.getlocus()
+            );
+            assert_eq!(
+                locone.getlocushaplo(),
+                loctwo.getlocushaplo(),
+                "Locus is different."
+            );
+            /* assert!(
+                locone
+                    .getpositionstart()
+                    .getzbasedpos()
+                    .abs_diff(loctwo.getpositionstart().getzbasedpos())
+                    <= 30_000.try_into().unwrap_or(u64::MAX),
+                "Locus position {} has a huge different between {} and {}",
+                locone.getlocus(),
+                locone
+                    .getpositionstart()
+                    .getobasedpos()
+                    .to_formatted_string(&Locale::en),
+                loctwo
+                    .getpositionstart()
+                    .getobasedpos()
+                    .to_formatted_string(&Locale::en)
+            );
+            assert!(
+                locone
+                    .getpositionend()
+                    .getzbasedpos()
+                    .abs_diff(loctwo.getpositionend().getzbasedpos())
+                    <= 30_000.try_into().unwrap_or(u64::MAX),
+                "Locus position {} has a huge different between {} and {}",
+                locone.getlocus(),
+                locone
+                    .getpositionend()
+                    .getobasedpos()
+                    .to_formatted_string(&Locale::en),
+                loctwo
+                    .getpositionend()
+                    .getobasedpos()
+                    .to_formatted_string(&Locale::en)
+            ); */
+            assert_eq!(
+                locone.getstrand(),
+                loctwo.getstrand(),
+                "Locus {} has different strand",
+                locone.getlocus()
+            );
         }
     }
     #[test]
@@ -279,7 +588,7 @@ mod tests {
         let mean = getorsetparams(&meanpath, &args4).unwrap();
         let mut done = false;
         result.iter_mut().for_each(|p| {
-            let pos = posread(&args4, &p).unwrap();
+            let pos = posread(&args4, p).unwrap();
             if p.getlocushaplo() == &LocusHaplo::new(crate::r#struct::Locus::IGK, Primary) {
                 let mut elem = pos.iter().skip(1675043).take(11).map(|(_, b)| b);
                 let first = elem.next().unwrap();
@@ -386,13 +695,13 @@ mod tests {
         };
         // Generate sequence changes the reader so we need to compress and decompress.
         let compress = generatesequenceraw(&args4, &locus).unwrap();
-        let compressreal = generatesequence(&args4, testo.path(), true, &locus).unwrap();
+        let compressreal = generatesequence(&args4, testo.path(), true, &locus, None).unwrap();
         let decompress = decompressseq(&compressreal).unwrap();
         let mut bufone = BufReader::new(compress);
         let mut buftwo = BufReader::new(decompress.getfile().unwrap());
         loop {
             let mut buf1 = [0; 4096];
-            let mut buf2 = [0; 4096];
+            let mut buf2 = buf1; //Buffer is copied
             match (bufone.read_exact(&mut buf1), buftwo.read_exact(&mut buf2)) {
                 (Err(a), Err(b)) if b.kind() == UnexpectedEof && a.kind() == UnexpectedEof => break,
                 (Ok(_), Ok(_)) if buf1.eq(&buf2) => (),
@@ -442,13 +751,13 @@ mod tests {
         let mean = getorsetparams(Path::new("example_files/results/.mean"), &args4).unwrap();
         let mut locushash: BTreeMap<LocusInfos, Vec<Genehit>> = BTreeMap::new();
         for loci in result.iter_mut() {
-            let info = posread(&args4, &loci).unwrap();
+            let info = posread(&args4, loci).unwrap();
             loci.setstatus(mean.getmean(), &args4, &info);
-            let genelist = extractgenelist(&args4, &loci, false).unwrap();
+            let genelist = extractgenelist(&args4, loci, false).unwrap();
             locushash.insert(loci.clone(), Vec::new());
             for mut gene in genelist {
                 let (v, hashmap) = generategeneinfos(&args4, &mut gene).unwrap();
-                let entry = locushash.get_mut(&loci).unwrap();
+                let entry = locushash.get_mut(loci).unwrap();
                 entry.push(Genehit::new(v.clone(), None));
                 if gene.gene
                     == Genename::new("IGHV(III)-82*01", Some("V-REGION".to_string())).unwrap()
@@ -484,8 +793,8 @@ mod tests {
                                 hit.getpos().try_into().unwrap(),
                             ))
                             .unwrap();
-                        if hit.rbases.get(0).unwrap().contains("*")
-                            || hit.rbases.get(0).unwrap().contains("#")
+                        if hit.rbases.first().unwrap().contains("*")
+                            || hit.rbases.first().unwrap().contains("#")
                         {
                             assert!(line.getindel() < line.gettotal());
                         } else {
@@ -496,7 +805,7 @@ mod tests {
                                 line.getindel()
                             );
                         }
-                        if hit.rbases.get(0).unwrap().contains("+") {
+                        if hit.rbases.first().unwrap().contains("+") {
                             assert!(line.getinsertion() > 0);
                         } else {
                             assert!(line.getinsertion() == 0);
@@ -506,14 +815,11 @@ mod tests {
                     {
                         let entry = locushash
                             .iter()
-                            .flat_map(|(l, p)| {
-                                if let Some(b) =
-                                    p.iter().find(|e| gene.getgene() == e.geneinfo.getgene())
-                                {
-                                    Some((l, b))
-                                } else {
-                                    None
-                                }
+                            .flat_map(|(locus, genehits)| {
+                                genehits
+                                    .iter()
+                                    .find(|e| gene.getgene() == e.geneinfo.getgene())
+                                    .map(|hit| (locus, hit))
                             })
                             .next()
                             .unwrap();

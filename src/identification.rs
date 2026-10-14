@@ -106,8 +106,8 @@ where
                             Ok(qseqid),
                             sseqid,
                             sseq,
-                            Ok(sstart),
-                            Ok(send),
+                            sstart,
+                            send,
                             complement,
                             status,
                             identity,
@@ -115,8 +115,8 @@ where
                             Name::from_str(&name),
                             &first.target_name,
                             String::new(),
-                            TryInto::<usize>::try_into(first.target_start),
-                            TryInto::<usize>::try_into(first.target_end),
+                            first.target_start,
+                            first.target_end,
                             if first.strand == rammap::Strand::Reverse {
                                 Strand::Minus
                             } else {
@@ -151,13 +151,11 @@ where
             thread::scope(|f| {
                 let sender = Arc::clone(&sender);
                 f.spawn(move || {
-                    let mut time = 0;
-                    while time < TIMEOUT_IN_MN.saturating_mul(60) {
+                    for _ in 0..TIMEOUT_IN_MN.saturating_mul(60) {
                         if bornessome.is_finished() {
                             return;
                         }
                         sleep(Duration::new(1, 0));
-                        time += 1;
                     }
                     let _ = sender.send("kill");
                 });
@@ -232,7 +230,7 @@ pub(crate) fn locusallposition(
             ));
         }
     };
-    let info = threadlaunch(referencepath, &assembly, args, bornespath);
+    let info = threadlaunch(referencepath, assembly, args, bornespath);
     let (mut blast, mut bornes) = match info {
         Ok((a, Some(Some(b)))) => (a, Some(b)),
         Ok((a, None)) => {
@@ -303,7 +301,7 @@ pub(crate) fn locusallposition(
     data.sort_unstable();
     data.dedup();
     data.shrink_to_fit();
-    let range = find_global_best_range(&data, &bornes, &args).ok_or(io::Error::new(
+    let range = find_global_best_range(&data, bornes.as_deref(), args).ok_or(io::Error::new(
         ErrorKind::InvalidInput,
         "No locus found after BLAST analysis",
     ));
@@ -322,7 +320,7 @@ pub(crate) fn locusallposition(
                     && let Ok(maxi) = max.try_into()
                     && elem.getpositionend().getzbasedpos() > maxi
                 {
-                    elem.setpositionend(Position::newfromzposition(maxi))
+                    elem.setpositionend(Position::newfromoposition(maxi)) //Length is 1-based
                         .map_err(|e| io::Error::new(InvalidInput, e))?;
                 }
             }
@@ -340,26 +338,32 @@ pub(crate) fn downloadbornes(args: &Args) -> Option<Filecrea> {
     let tempfile = Path::join(&env::temp_dir(), "bornes.fasta");
     if args.cachebypass || !fileincache(&tempfile) {
         println!("Downloading IMGT bornes, please wait...");
-        match sendresultcompressed(&REQUESTCLIENT, BORNESLINK.as_str()) {
-            Ok(e) => {
-                match File::create(&tempfile).map(|mut f| f.write_all(e.as_bytes())) {
-                    Ok(Ok(_)) => (),
-                    _ => {
-                        eprintln!("Cannot write bornes in sequence.");
-                        return None;
-                    }
+        let rawtmp = if args.cachebypass {
+            Filecrea::createtemp(None, Some("bornes.txt")).ok()?
+        } else {
+            Filecrea::createfrompath(tempfile)
+        };
+        let rawfile = rawtmp.setfile();
+        match sendresultcompressed(&REQUESTCLIENT, BORNESLINK.as_str(), false) {
+            Ok(e) => match rawfile.map(|mut f| f.write_all(e.as_bytes())) {
+                Ok(Ok(_)) => {
+                    println!("Success.");
+                    Some(rawtmp)
                 }
-                println!("Success.")
-            }
+                _ => {
+                    eprintln!("Cannot write bornes in sequence.");
+                    None
+                }
+            },
             Err(e) => {
                 println!("IMGT bornes data retrieval failed because: {e}.");
-                return None;
+                None
             }
         }
     } else {
         println!("IMGT bornes were already downloaded, retrieving...");
-    };
-    Some(Filecrea::createfrompath(tempfile))
+        Some(Filecrea::createfrompath(tempfile))
+    }
 }
 pub(crate) fn downloadmotifs(args: &Args) -> Option<Filecrea> {
     println!("Downloading motifs sequence from IMGT");
@@ -367,7 +371,7 @@ pub(crate) fn downloadmotifs(args: &Args) -> Option<Filecrea> {
     let file = Filecrea::createfrompath(&tempfile);
     if args.cachebypass || !fileincache(&tempfile) {
         println!("Downloading IMGT motifs, please wait...");
-        match sendresultcompressed(&REQUESTCLIENT, MOTIFLINK.as_str()) {
+        match sendresultcompressed(&REQUESTCLIENT, MOTIFLINK.as_str(), false) {
             Ok(e) => {
                 match file.setfile().and_then(|mut f| f.write_all(e.as_bytes())) {
                     Ok(_) => (),
@@ -390,19 +394,20 @@ pub(crate) fn downloadmotifs(args: &Args) -> Option<Filecrea> {
 }
 pub(crate) fn find_global_best_range(
     blastcheck: &[Blastmatch],
-    bornes: &Option<Vec<Blastmatch>>,
+    bornes: Option<&[Blastmatch]>,
     args: &Args,
 ) -> Option<Vec<LocusInfos>> {
-    let mut groups: HashMap<LocusHaplo, (String, bool, usize, usize, bool)> = HashMap::new();
+    #[allow(clippy::type_complexity)]
+    let mut groups: HashMap<LocusHaplo, (String, bool, usize, usize, (bool, bool))> =
+        HashMap::new();
     let blastcheck = blastcheck.to_vec();
     let mut hash = blastcheck
         .iter()
         .filter_map(|p| p.getlocusname().map(|d| (d, p)))
         .into_group_map_by(|(l, f)| (l.clone(), f.getsubject()));
-    let mut bornes = match bornes {
-        Some(bornes) => Some(bornes.iter().into_group_map_by(|f| f.getsubject())),
-        None => None,
-    };
+    let mut bornes = bornes
+        .as_ref()
+        .map(|bornes| bornes.iter().into_group_map_by(|f| f.getsubject()));
     if let Some(p) = &mut bornes {
         p.values_mut().for_each(|d| d.sort_unstable());
     }
@@ -415,6 +420,7 @@ pub(crate) fn find_global_best_range(
             ord => ord,
         })
     });
+    #[allow(clippy::type_complexity)]
     let mut locusborne: HashMap<
         (Locus, String, u32),
         (
@@ -422,16 +428,18 @@ pub(crate) fn find_global_best_range(
             (Option<Blastmatch>, Option<Blastmatch>),
         ),
     > = HashMap::new();
-    for ((loci, sseqname), data) in hash.iter() {
+    for ((loci, subject), data) in hash.iter() {
         let mut index = 0;
         for (_, elem) in data {
-            let d = match locusborne.get_mut(&(loci.clone(), sseqname.to_string(), index)) {
+            //Count different blocks of continuous gene for each locus and chromosome. Index is the number of those blocks.
+            // Hash is already filtered by position
+            let d = match locusborne.get_mut(&(loci.clone(), subject.to_string(), index)) {
                 Some(a) => a,
                 None => {
                     let mut e = BTreeSet::new();
                     e.insert((*elem).clone());
                     locusborne.insert(
-                        (loci.clone(), sseqname.to_string(), index),
+                        (loci.clone(), subject.to_string(), index),
                         (e, (None, None)),
                     );
                     continue;
@@ -447,7 +455,7 @@ pub(crate) fn find_global_best_range(
                 let mut e = BTreeSet::new();
                 e.insert((*elem).clone());
                 locusborne.insert(
-                    (loci.clone(), sseqname.to_string(), index),
+                    (loci.clone(), subject.to_string(), index),
                     (e, (None, None)),
                 );
             }
@@ -456,26 +464,26 @@ pub(crate) fn find_global_best_range(
     if let Some(borneblast) = bornes {
         for (key, (val, (bornefirst, bornesecond))) in locusborne.iter_mut() {
             let itera = val.clone();
-            let (loc, min, max) = match (key, itera.iter().min(), itera.iter().min()) {
+            let (loc, min, max) = match (key, itera.iter().min(), itera.iter().max()) {
                 (c, Some(a), Some(b)) => (c, a, b),
                 _ => continue,
             };
             let mut raw = borneblast
                 .iter()
                 .filter(|(key, _)| **key == loc.1.as_str())
-                .flat_map(|(_, hit)| hit.into_iter());
-            let findfirstborne = raw.find(|val| {
-                val.sstart.abs_diff(min.sstart) <= LOCUSSEPARATOR
-                    || val.sstart.abs_diff(max.send) <= LOCUSSEPARATOR
-                    || val.send.abs_diff(max.send) <= LOCUSSEPARATOR
-                    || val.send.abs_diff(min.sstart) <= LOCUSSEPARATOR
+                .flat_map(|(_, hit)| hit.iter());
+            let findfirstborne = raw.find(|borne| {
+                borne.send.abs_diff(min.sstart) <= LOCUSSEPARATOR
+                    || borne.sstart.abs_diff(min.sstart) <= LOCUSSEPARATOR
+                // || val.send.abs_diff(max.send) <= LOCUSSEPARATOR
+                //|| val.send.abs_diff(min.sstart) <= LOCUSSEPARATOR
             });
-            let findsecondborne = raw.find(|val| {
-                findfirstborne.is_none_or(|f| f.getallelename() != val.getallelename()) //Do not take the same borne twice
-                    && (val.sstart.abs_diff(min.sstart) <= LOCUSSEPARATOR
-                        || val.sstart.abs_diff(max.send) <= LOCUSSEPARATOR
-                        || val.send.abs_diff(max.send) <= LOCUSSEPARATOR
-                        || val.send.abs_diff(min.sstart) <= LOCUSSEPARATOR)
+            let findsecondborne = raw.find(|borne| {
+                findfirstborne.is_none_or(|f| f.getallelename() != borne.getallelename()) //Do not take the same borne twice
+                    //&& (val.sstart.abs_diff(min.sstart) <= LOCUSSEPARATOR
+                    //    || val.sstart.abs_diff(max.send) <= LOCUSSEPARATOR
+                        && (borne.send.abs_diff(max.send) <= LOCUSSEPARATOR
+                        || borne.sstart.abs_diff(max.send) <= LOCUSSEPARATOR)
             });
             let data = |borne: Option<&&Blastmatch>,
                         toput: &mut Option<Blastmatch>,
@@ -504,8 +512,8 @@ pub(crate) fn find_global_best_range(
                     }
                 };
             };
-            data(findfirstborne, bornefirst, &min, &max, val);
-            data(findsecondborne, bornesecond, &min, &max, val);
+            data(findfirstborne, bornefirst, min, max, val);
+            data(findsecondborne, bornesecond, min, max, val);
         }
     }
     if locusborne.is_empty() {
@@ -525,7 +533,7 @@ pub(crate) fn find_global_best_range(
                         locus: &LocusHaplo,
                         bornestoprint: &mut Vec<Blastmatch>| {
         let addlocustoname = |name: &mut Blastmatch| {
-            name.qseqid.gene = format!("{}_{}", name.qseqid.gene, locus.to_string());
+            name.qseqid.gene = format!("{}_{}", name.qseqid.gene, locus);
         };
         match bornes {
             (Some(mut first), Some(mut second)) => {
@@ -533,42 +541,50 @@ pub(crate) fn find_global_best_range(
                 bornestoprint.push(first);
                 addlocustoname(&mut second);
                 bornestoprint.push(second);
-                true
+                (true, true)
             }
             (Some(mut first), None) => {
                 addlocustoname(&mut first);
                 bornestoprint.push(first);
-                true
+                (true, false)
             }
-            (None, Some(_)) => unreachable!("First borne cannot be null if second borne"),
-            (None, None) => false,
+            (None, Some(mut second)) => {
+                addlocustoname(&mut second);
+                bornestoprint.push(second);
+                (false, true)
+            }
+            (None, None) => (false, false),
         }
     };
     let mut bornestoprint = Vec::new();
-    for ((loci, sseq, _), (blast, bornes)) in real {
+    let mut insertion = |blast: &BTreeSet<Blastmatch>,
+                         bornes: &(Option<Blastmatch>, Option<Blastmatch>),
+                         subject: String,
+                         loc: &LocusHaplo| {
+        let (min, max) = match (blast.first(), blast.last()) {
+            (Some(a), Some(b)) => (min(a.sstart, a.send), max(b.sstart, b.send)),
+            _ => unreachable!("vec is not empty"),
+        };
+        let hasbornes = bornesscript(bornes.clone(), loc, &mut bornestoprint);
+        let split = blast.iter().into_group_map_by(|f| &f.complement);
+        let complement = split.get(&Strand::Minus).map_or(0, |s| s.len())
+            > split.get(&Strand::Plus).map_or(0, |s| s.len());
+        (subject, complement, min, max, hasbornes)
+    };
+    for ((loci, subject, _), (blast, bornes)) in real {
         let primaryhap = LocusHaplo::new(loci.clone(), Haplotype::Primary);
         let secondhap = LocusHaplo::new(loci.clone(), Haplotype::Alternate);
-        if !groups.contains_key(&primaryhap) {
-            let (min, max) = match (blast.first(), blast.last()) {
-                (Some(a), Some(b)) => (min(a.sstart, a.send), max(b.sstart, b.send)),
-                _ => unreachable!("vec is not empty"),
-            };
-            let hasbornes = bornesscript(bornes, &primaryhap, &mut bornestoprint);
-            let split = blast.iter().into_group_map_by(|f| &f.complement);
-            let complement = split.get(&Strand::Minus).map_or(0, |s| s.len())
-                > split.get(&Strand::Plus).map_or(0, |s| s.len());
-            groups.insert(primaryhap, (sseq, complement, min, max, hasbornes));
-        } else if !groups.contains_key(&LocusHaplo::new(loci.clone(), Haplotype::Alternate)) {
-            let (min, max) = match (blast.first(), blast.last()) {
-                (Some(a), Some(b)) => (min(a.sstart, a.send), max(b.sstart, b.send)),
-                _ => unreachable!("vec is not empty"),
-            };
-            let hasbornes = bornesscript(bornes, &secondhap, &mut bornestoprint);
-            let split = blast.iter().into_group_map_by(|f| &f.complement);
-            let complement = split.get(&Strand::Minus).map_or(0, |s| s.len())
-                > split.get(&Strand::Plus).map_or(0, |s| s.len());
-            groups.insert(secondhap, (sseq, complement, min, max, hasbornes));
+        groups
+            .entry(primaryhap.clone())
+            .or_insert_with_key(|key| insertion(&blast, &bornes, subject.clone(), key));
+        if let Some((name, ..)) = groups.get(&primaryhap)
+            && name.eq_ignore_ascii_case(&subject)
+        {
+            continue; //Do not have primary and alternate with the same contig name
         }
+        groups
+            .entry(secondhap.clone())
+            .or_insert_with_key(|key| insertion(&blast, &bornes, subject, key));
     }
     let mut loc: Vec<LocusInfos> = groups
         .into_iter()
@@ -579,14 +595,14 @@ pub(crate) fn find_global_best_range(
                 Position::new(
                     false,
                     start
-                        .checked_sub(if hasbornes { 0 } else { BORNES })
+                        .checked_sub(if hasbornes.0 { 0 } else { BORNES })
                         .unwrap_or(1)
                         .try_into()
                         .unwrap_or(1),
                 ),
                 Position::new(
                     false,
-                    end.checked_add(if hasbornes { 0 } else { BORNES })
+                    end.checked_add(if hasbornes.1 { 0 } else { BORNES })
                         .unwrap_or(1)
                         .try_into()
                         .unwrap_or(1),
@@ -606,10 +622,22 @@ pub(crate) fn find_global_best_range(
     loc.sort_unstable();
     Some(loc)
 }
-pub(crate) fn sendresult(request: &reqwest::blocking::Client, url: &str) -> Result<String, String> {
-    match request.get(url).send() {
+pub(crate) fn sendresult(
+    request: &reqwest::blocking::Client,
+    url: &str,
+    head: bool,
+) -> Result<String, String> {
+    let req = if head {
+        request.head(url).send()
+    } else {
+        request.get(url).send()
+    };
+    match req {
         Ok(e) => {
             if e.status() == StatusCode::OK {
+                if head {
+                    return Ok(String::new());
+                }
                 let total_size = match (
                     e.content_length(),
                     e.headers().get(header::CONTENT_LENGTH).map(|a| {
@@ -650,10 +678,19 @@ pub(crate) fn sendresult(request: &reqwest::blocking::Client, url: &str) -> Resu
 pub(crate) fn sendresultcompressed(
     request: &reqwest::blocking::Client,
     url: &str,
+    head: bool,
 ) -> Result<String, String> {
-    match request.get(url).send() {
+    let req = if head {
+        request.head(url).send()
+    } else {
+        request.get(url).send()
+    };
+    match req {
         Ok(e) => {
             if e.status() == StatusCode::OK {
+                if head {
+                    return Ok(String::new());
+                }
                 let mut buf = Vec::new();
                 let (contentlength, headers) = (e.content_length(), e.headers().clone());
                 let stream = e.bytes().map_err(|e| e.to_string())?;
@@ -716,7 +753,7 @@ pub(crate) fn downloadref(
         r.to_string()
     } else {
         println!("Checking reference sequence from IMGT/GENE-DB");
-        match sendresult(&REQUESTCLIENT, RELEASELINK.as_str()) {
+        match sendresult(&REQUESTCLIENT, RELEASELINK.as_str(), false) {
             Ok(e) => e,
             Err(e) => {
                 println!("Release fetched failed because: {e}");
@@ -730,6 +767,7 @@ pub(crate) fn downloadref(
             releaseversion,
         ));
     };
+    println!("Release version is {}", releaseversion);
     let tempfile = Filecrea::createfrompath(Path::join(
         &env::temp_dir(),
         format!("refseq{}.fasta", releaseversion),
@@ -739,7 +777,7 @@ pub(crate) fn downloadref(
             "Downloading IMGT/GENE-DB release {}, please wait...",
             releaseversion
         );
-        match sendresult(&REQUESTCLIENT, VQUESTLINK.as_str()) {
+        match sendresult(&REQUESTCLIENT, VQUESTLINK.as_str(), false) {
             Ok(e) => {
                 match tempfile.setfile().map(|mut f| f.write_all(e.as_bytes())) {
                     Ok(Ok(_)) => (),

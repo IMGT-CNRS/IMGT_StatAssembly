@@ -11,7 +11,9 @@ use crate::identification::locusallposition;
 #[cfg(feature = "pdf")]
 use crate::pdf::generatepdf;
 #[cfg(feature = "pileup")]
-use crate::pileup::printpileup;
+use crate::pileup::commandlinepileup;
+//#[cfg(feature = "pileup")]
+//use crate::pileup::printpileup;
 use crate::r#struct::AcceptedStatus::Rejected;
 use bio::io::fasta;
 use bio_types::sequence::SequenceRead;
@@ -24,7 +26,7 @@ use plotters::style::full_palette::{BROWN_500, GREY_400};
 use rayon::prelude::*;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::ErrorKind::{InvalidData, InvalidInput};
+use std::io::ErrorKind::{BrokenPipe, InvalidData, InvalidInput};
 use std::num::NonZero;
 use std::ops::{Add, Div, Mul, Range, RangeInclusive, Sub};
 use std::path::Path;
@@ -40,8 +42,8 @@ use crate::r#struct::*;
 use crate::submissions::{
     GITHUBHOME, GITHUBVERSION, INVALIDCOVERAGE, NOTENOUGHMATCHREADS, REQUESTCLIENT,
     SOFTCLIPTOOMUCH, SUSPICIOUSPOSITIONALERT, askforsubmission, checkifblastpresent,
-    generatelightbam, generatesequence, genesblast, getprogressbarclassic, getprogressbarspin,
-    positionfiltering,
+    generatelightbam, generatesequence, generatesplitsequence, genesblast, getprogressbarclassic,
+    getprogressbarspin, positionfiltering,
 };
 use extended_htslib::bam::ext::{BamRecordExtensions, IterAlignedPairs};
 use extended_htslib::bam::record::{Cigar, CsValue};
@@ -200,7 +202,7 @@ fn getassemblyreader(args: &Args) -> io::Result<fasta::IndexedReader<File>> {
         (Some(p), ..) => fasta::IndexedReader::from_file(&p)
             .or_else(|_| {
                 println!("Creating index for assembly.fasta");
-                faidx::build(&p).map_err(|e| bio::io::fasta::ReadError::Open {
+                faidx::build(p).map_err(|e| bio::io::fasta::ReadError::Open {
                     //Try to build index if not present
                     path: p.clone(),
                     source: io::Error::new(io::ErrorKind::InvalidInput, e.to_string()),
@@ -215,18 +217,18 @@ fn getassemblyreader(args: &Args) -> io::Result<fasta::IndexedReader<File>> {
             ));
         }
     };
-    Ok(elem.map_err(|e| {
+    elem.map_err(|e| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("Assembly error, maybe index is missing (create it with samtools faidx): {e}"),
         )
-    })?)
+    })
 }
 //Check we can read BAM file and return the reader with desired threads
 fn getreaderoffile(args: &Args) -> Result<IndexedReader, extended_htslib::errors::Error> {
     let threads: u32 = match args.threads {
         0 => available_parallelism()
-            .unwrap_or(NonZero::new(1).unwrap())
+            .unwrap_or(NonZero::new(1).unwrap_or_else(|| unreachable!("1 is not zero")))
             .get()
             .try_into()
             .unwrap_or(1),
@@ -517,7 +519,7 @@ fn generategenelist(
             (a.0, Some(a.1))
         }
         Some(b) => {
-            eprintln!("Generating a gene list.");
+            println!("Generating a gene list.");
             (b.to_vec(), None)
         }
     };
@@ -598,9 +600,8 @@ fn printnewloc(args: &Args, locus: &[LocusInfos]) -> io::Result<()> {
     let mut csv = csv::WriterBuilder::new()
         .comment(Some(b'#'))
         .delimiter(b'\t')
-        .has_headers(false)
+        .has_headers(true)
         .from_writer(file);
-    csv.write_record(["locus", "haplotype", "contig", "start", "end", "status"])?;
     for loci in locus.iter() {
         csv.serialize(loci)?;
     }
@@ -671,10 +672,8 @@ fn processcounting(
         ));
     let hitter = if let Some(d) = pos.get_mut(start) {
         Some(d)
-    } else if let Some(d) = pos.get_mut(end) {
-        Some(d)
     } else {
-        None
+        pos.get_mut(end)
     };
     match (
         //Leading and trailing are only present at the start or end so no need to check that.
@@ -789,7 +788,8 @@ fn getmeancoveragelengthandphred(args: &Args) -> io::Result<Params> {
             args.threads,
         ))
         .build()
-        .unwrap();
+        .or_else(|_| rayon::ThreadPoolBuilder::new().build())
+        .map_err(|p| io::Error::new(BrokenPipe, p.to_string()))?;
     const BATCH_SIZE: usize = 500;
     let mut records = reader.records().filter_map(Result::ok);
 
@@ -848,8 +848,7 @@ fn getmeancoveragelengthandphred(args: &Args) -> io::Result<Params> {
             "No data",
         ));
     }
-    let totalmap = u64::try_from(length)
-        .map_err(|f| std::io::Error::new(std::io::ErrorKind::InvalidInput, f))?;
+    let totalmap = length;
     let readvalues = u64::try_from(readlength)
         .map_err(|f| std::io::Error::new(std::io::ErrorKind::InvalidInput, f))?;
     let mean = totalmap / total_mapped;
@@ -943,7 +942,7 @@ fn available_memory() -> Option<usize> {
 }
 fn posread(args: &Args, loci: &LocusInfos) -> io::Result<BTreeMap<Position, HashMapinfo>> {
     let mut pos: BTreeMap<Position, HashMapinfo> = BTreeMap::new();
-    let mut reader = match getreaderoffile(&args) {
+    let mut reader = match getreaderoffile(args) {
         Ok(r) => r,
         Err(e) => {
             return Err(io::Error::new(
@@ -1020,7 +1019,7 @@ fn posread(args: &Args, loci: &LocusInfos) -> io::Result<BTreeMap<Position, Hash
             a.set_position(count);
         }
         nocount = false;
-        match processcounting(&args, &mut pos, message, loci, &p, sep) {
+        match processcounting(args, &mut pos, message, loci, &p, sep) {
             Err(e) if e.kind() == io::ErrorKind::AddrNotAvailable => {
                 pos.clear();
                 return Ok(pos);
@@ -1068,15 +1067,13 @@ fn posread(args: &Args, loci: &LocusInfos) -> io::Result<BTreeMap<Position, Hash
                 (p.psoftclips * 100f32 / max(p.getfullsecondary().unwrap_or(1), 1) as f32).round()
                     / 100f32
         }
-        p.globalmismatch = match p.globalmismatch {
-            Some(a) => Some(
-                a / max(
-                    std::convert::TryInto::<usize>::try_into(p.gettotalmap()).unwrap_or(1),
-                    1,
-                ),
-            ),
-            None => None,
-        };
+        p.globalmismatch = p.globalmismatch.map(|a| {
+            a.checked_div_euclid(max(
+                std::convert::TryInto::<usize>::try_into(p.gettotalmap()).unwrap_or(1),
+                1,
+            ))
+            .unwrap_or_else(|| unreachable!("Division by zero")) //Reject if rhs is zero, which should be impossible actually
+        });
     });
     Ok(pos)
 }
@@ -1085,17 +1082,17 @@ where
     T: AsRef<str>,
 {
     let mut initial = String::new();
-    let mut c = s.as_ref().chars();
+    let c = s.as_ref().chars();
     let mut start = true;
-    while let Some(f) = c.next() {
+    for f in c {
         if start {
             start = false;
-            initial.push_str(&f.to_ascii_uppercase().to_string());
+            initial.push(f.to_ascii_uppercase());
         } else {
-            initial.push_str(&f.to_ascii_lowercase().to_string());
+            initial.push(f.to_ascii_lowercase());
         }
     }
-    return Cow::Owned(initial);
+    Cow::Owned(initial)
 }
 fn findanalyse(
     blastpresent: bool,
@@ -1108,7 +1105,7 @@ fn findanalyse(
         eprintln!("To find the locus, BLAST must be present");
         return;
     }
-    if let Err(e) = printnewloc(&args, &locus) {
+    if let Err(e) = printnewloc(args, locus) {
         eprintln!("Error setting new locus result: {e}");
         return;
     };
@@ -1117,7 +1114,7 @@ fn findanalyse(
         return;
     }
     if args.assembly.is_some() {
-        let v = match generategenelist(&blastcheck, &speciesblast, &locus, &args) {
+        let v = match generategenelist(blastcheck, speciesblast, locus, args) {
             Ok((Some(a), _)) => {
                 let mut genelist = getgeneinfos(&a);
                 printgenelist(&mut genelist, args, false).map(|_| ())
@@ -1134,7 +1131,67 @@ fn findanalyse(
         && let Err(e) = generatelightbam(args, b, None, locus)
     {
         eprintln!("Error setting small bam: {e}");
-        return;
+        //return;
+    }
+}
+#[allow(clippy::type_complexity)]
+fn requestimage<T>(
+    haplotypebool: bool,
+    image: DrawingArea<T, Shift>,
+) -> (
+    DrawingArea<T, Shift>,
+    Option<DrawingArea<T, Shift>>,
+    DrawingArea<T, Shift>,
+)
+where
+    T: DrawingBackend,
+{
+    if !haplotypebool {
+        let (a, b) = image.split_vertically((50).percent_height());
+        (a, Some(b), image)
+    } else {
+        let (a, _) = image.split_horizontally((100).percent_width());
+        (a, None, image)
+    }
+}
+fn getdrawingmaps<'a>(
+    issvg: bool,
+    readname: &'a Path,
+    mismatchname: &'a Path,
+    readresultsize: (u32, u32),
+    mismatchsize: (u32, u32),
+    haplotypebool: bool,
+) -> DrawingImage<'a, SVGBackend<'a>, BitMapBackend<'a>> {
+    if issvg {
+        let r = SVGBackend::new(readname, readresultsize).into_drawing_area();
+        let (top, bottom, mainsvgtop) = requestimage(haplotypebool, r);
+        let r = SVGBackend::new(mismatchname, mismatchsize).into_drawing_area();
+        let (mtop, mbottom, mainsvgbottom) = requestimage(haplotypebool, r);
+        DrawingImage {
+            readresulttop: Some(Backend::Svg(top)),
+            readresultbottom: bottom.map(Backend::Svg),
+            mismatchtop: Some(Backend::Svg(mtop)),
+            mismatchbottom: mbottom.map(Backend::Svg),
+            mainsvgtop: Some(mainsvgtop),
+            mainsvgbottom: Some(mainsvgbottom),
+            mainpngbottom: None,
+            mainpngtop: None,
+        }
+    } else {
+        let r = BitMapBackend::new(readname, readresultsize).into_drawing_area();
+        let (top, bottom, mainpngtop) = requestimage(haplotypebool, r);
+        let r = BitMapBackend::new(mismatchname, mismatchsize).into_drawing_area();
+        let (mtop, mbottom, mainpngbottom) = requestimage(haplotypebool, r);
+        DrawingImage {
+            readresulttop: Some(Backend::Png(top)),
+            readresultbottom: bottom.map(Backend::Png),
+            mismatchtop: Some(Backend::Png(mtop)),
+            mismatchbottom: mbottom.map(Backend::Png),
+            mainsvgtop: None,
+            mainsvgbottom: None,
+            mainpngbottom: Some(mainpngbottom),
+            mainpngtop: Some(mainpngtop),
+        }
     }
 }
 fn main() -> ExitCode {
@@ -1232,8 +1289,7 @@ fn main() -> ExitCode {
     let grouped = Rc::make_mut(&mut groupedin);
     for locus in grouped {
         let haplotype = locus.len();
-        let nlocus = locus.clone();
-        let floci = match nlocus.first() {
+        let floci = match locus.first() {
             Some(f) => f,
             None => {
                 eprintln!("There is no locus after grouping found.");
@@ -1258,18 +1314,12 @@ fn main() -> ExitCode {
             1200,
             600 * std::convert::TryInto::<u32>::try_into(haplotype).unwrap_or(1),
         );
-        let loc = if let Some(a) = locus.first() {
-            a
-        } else {
-            eprintln!("Error with some locus, continuing");
-            continue;
-        };
         let readname = Path::join(
             &args.outdir,
             givename(
                 &speciesblast,
-                loc.getlocus(),
-                &loc.getcontig(),
+                floci.getlocus(),
+                floci.getcontig(),
                 haplotypebool,
                 &format!("readresult.{}", if args.svg { "svg" } else { "png" }),
                 true,
@@ -1279,69 +1329,21 @@ fn main() -> ExitCode {
             &args.outdir,
             givename(
                 &speciesblast,
-                loc.getlocus(),
-                &loc.getcontig(),
+                floci.getlocus(),
+                floci.getcontig(),
                 haplotypebool,
                 &format!("mismatchresult.{}", if args.svg { "svg" } else { "png" }),
                 true,
             ),
         );
-        let mut drawingmaps = {
-            if args.svg {
-                let (top, bottom) = if !haplotypebool {
-                    let r = SVGBackend::new(readname.as_path(), readresultsize)
-                        .into_drawing_area()
-                        .split_vertically((50).percent_height());
-                    (r.0, Some(r.1))
-                } else {
-                    let r = SVGBackend::new(readname.as_path(), readresultsize).into_drawing_area();
-                    (r, None)
-                };
-                let (mtop, mbottom) = if !haplotypebool {
-                    let r = SVGBackend::new(mismatchname.as_path(), mismatchsize)
-                        .into_drawing_area()
-                        .split_vertically((50).percent_height());
-                    (r.0, Some(r.1))
-                } else {
-                    let r =
-                        SVGBackend::new(mismatchname.as_path(), mismatchsize).into_drawing_area();
-                    (r, None)
-                };
-                DrawingImage {
-                    readresulttop: Some(Backend::Svg(top)),
-                    readresultbottom: bottom.map(Backend::Svg),
-                    mismatchtop: Some(Backend::Svg(mtop)),
-                    mismatchbottom: mbottom.map(Backend::Svg),
-                }
-            } else {
-                let (top, bottom) = if !haplotypebool {
-                    let r = BitMapBackend::new(readname.as_path(), readresultsize)
-                        .into_drawing_area()
-                        .split_vertically((50).percent_height());
-                    (r.0, Some(r.1))
-                } else {
-                    let r =
-                        BitMapBackend::new(readname.as_path(), readresultsize).into_drawing_area();
-                    (r, None)
-                };
-                let (mtop, mbottom) = if !haplotypebool {
-                    let r = BitMapBackend::new(mismatchname.as_path(), mismatchsize)
-                        .into_drawing_area()
-                        .split_vertically((50).percent_height());
-                    (r.0, Some(r.1))
-                } else {
-                    let r = BitMapBackend::new(mismatchname.as_path(), mismatchsize)
-                        .into_drawing_area();
-                    (r, None)
-                };
-                DrawingImage {
-                    readresulttop: Some(Backend::Png(top)),
-                    readresultbottom: bottom.map(Backend::Png),
-                    mismatchtop: Some(Backend::Png(mtop)),
-                    mismatchbottom: mbottom.map(Backend::Png),
-                }
-            }
-        };
+        let mut drawingmaps = getdrawingmaps(
+            args.svg,
+            &readname,
+            &mismatchname,
+            readresultsize,
+            mismatchsize,
+            haplotypebool,
+        );
         for loci in locus.iter_mut() {
             let pos = match posread(&args, loci) {
                 Ok(b) if b.is_empty() => continue,
@@ -1395,7 +1397,7 @@ fn main() -> ExitCode {
                     }
                 }
             }
-            println!("Graphs finished.");
+            println!("Graphs calculated.");
             //Create CSV from HashMap
             if let Err(e) = createcsv(
                 outputdir.as_path(),
@@ -1468,7 +1470,7 @@ fn main() -> ExitCode {
             } else {
                 //We have an assembly
                 if args.assembly.is_some() && blastpresent {
-                    let mut data = match generategenelist(
+                    let data = match generategenelist(
                         &blastcheck,
                         &speciesblast,
                         unmergelocus(oldlocus.to_vec()).as_slice(),
@@ -1493,8 +1495,6 @@ fn main() -> ExitCode {
                     if blastcheck.is_none() {
                         blastcheck = Some(data.clone());
                     }
-                    let locivec = vec![loci.clone()];
-                    positionfiltering(&locivec, &mut data);
                     let mut genes = getgeneinfos(&data);
                     let result = match (
                         printgenelist(&mut genes, &mut args, true),
@@ -1524,7 +1524,16 @@ fn main() -> ExitCode {
                 }
             }
         }
-        println!("Locus {} is done!", floci.getlocus());
+        if let Err(e) = drawingmaps.makeimage() {
+            eprintln!("Issue making graphs. Error is {e}. Skipped.");
+            continue;
+        }
+        println!(
+            "Locus {} is done!",
+            locus
+                .first()
+                .map_or("Unknown".to_string(), |f| f.getlocus().to_string())
+        );
     }
     drop(oldlocus); //Drop to allow unwrap or clone to actually not clone
     let locus = unmergelocus(Rc::unwrap_or_clone(groupedin));
@@ -1535,10 +1544,16 @@ fn main() -> ExitCode {
     }
     #[cfg(feature = "pileup")]
     if args.pileup
-        && let Err(e) = printpileup(&speciesblast, &args, &locus)
+        && let Err(e) = commandlinepileup(&speciesblast, &args, &locus)
     {
         eprintln!("Error setting pileup: {e}");
     }
+    /* #[cfg(feature = "pileup")]
+    if args.pileup
+        && let Err(e) = printpileup(&speciesblast, &args, &locus)
+    {
+        eprintln!("Error setting pileup: {e}");
+    } */
     if let Err(e) = printnewloc(&args, &locus) {
         eprintln!("Error setting new locus result: {e}");
     }
@@ -1546,19 +1561,23 @@ fn main() -> ExitCode {
         locushashresult.values_mut().for_each(|p| p.sort_unstable());
         let mut genes: Vec<GeneInfos> = locushashresult
             .values_mut()
-            .flat_map(|genehit| genehit.into_iter().map(|g| g.geneinfo.clone().into()))
+            .flat_map(|genehit| genehit.iter_mut().map(|g| g.geneinfo.clone().into()))
             .collect();
         if let Err(e) = printgenelist(&mut genes, &mut args, false) {
             eprintln!("Error setting new gene list: {e}");
         }
     }
-    if !locushashresult.is_empty() {
-        if let Err(e) = printvalidatedalleles(&args, releaseversion, &locushashresult) {
-            eprintln!("Error setting alleles result: {e}");
-        }
+    if !locushashresult.is_empty()
+        && let Err(e) = printvalidatedalleles(&args, releaseversion, &locushashresult)
+    {
+        eprintln!("Error setting alleles result: {e}");
     }
     if args.assembly.is_some()
-        && let Err(e) = generatesequence(&args, &args.outdir, false, &locus)
+        && let Some(e) = if args.splitfasta {
+            generatesplitsequence(&args, &args.outdir, &speciesblast, false, &locus).err()
+        } else {
+            generatesequence(&args, &args.outdir, false, &locus, None).err()
+        }
     {
         eprintln!("{e}");
     }
@@ -1605,8 +1624,8 @@ fn locushash(
     data: &[Blastmatch],
     locushashresult: &mut BTreeMap<LocusInfos, Vec<Genehit>>,
 ) {
-    let mut generation = Genehit::constructfromvec(&result, realspecies, &data);
-    if let Some(a) = locushashresult.get_mut(&loci) {
+    let mut generation = Genehit::constructfromvec(result, realspecies, data);
+    if let Some(a) = locushashresult.get_mut(loci) {
         a.append(&mut generation);
     } else {
         locushashresult.insert(loci.clone(), generation);
@@ -1634,7 +1653,7 @@ where
         .quote_style(csv::QuoteStyle::Necessary)
         .from_writer(writer);
     if bornes.is_empty() {
-        csv.write_record(&["#No bornes found"])?;
+        csv.write_record(["#No bornes found"])?;
         csv.flush()?;
         return Ok(());
     }
@@ -1680,21 +1699,21 @@ where
         release.map_or("Unknown".to_string(), |p| String::from(p.as_ref()))
     )])?;
     if args.assembly.is_none() {
-        csv.write_record(&["No assembly provided, no hits with IMGT/GENE-DB"])?;
+        csv.write_record(["No assembly provided, no hits with IMGT/GENE-DB"])?;
     }
     for (locus, elem) in locushash.iter() {
         for (geneinfo, hit) in elem
             .iter()
             .filter(|a| a.getstatus().getstatus().isvalid())
-            .filter_map(|p| {
+            .map(|p| {
                 if let Some(a) = p.gethit() {
-                    Some((&p.geneinfo, Some(a)))
+                    (&p.geneinfo, Some(a))
                 } else {
-                    Some((&p.geneinfo, None))
+                    (&p.geneinfo, None)
                 }
             })
         {
-            csv.write_record(&[
+            csv.write_record([
                 format!("{}", geneinfo.gene).as_str(),
                 format!(
                     "{}-{}",
@@ -1726,7 +1745,10 @@ fn printvalidatedalleles<T>(
 where
     T: AsRef<str>,
 {
-    let locushash = filtervalidatedallelesrecreate(&locushash);
+    let path = args.outdir.join("allallelesblast.fasta");
+    let mut writer = File::create(path)?;
+    printvalidatedallelesraw(&mut writer, release.as_ref(), args, locushash)?;
+    let locushash = filtervalidatedallelesrecreate(locushash);
     let path = args.outdir.join("validatedalleles.fasta");
     let mut writer = File::create(path)?;
     printvalidatedallelesraw(&mut writer, release, args, &locushash)
@@ -1805,9 +1827,8 @@ where
         let mut count: HashMap<Genename, usize> = HashMap::new();
         for name in genes.iter_mut() {
             let newname = if finish.iter().any(|g| {
-                g.getgene().eq(&name.getgene())
-                    && g.getchromosome()
-                        .eq_ignore_ascii_case(&name.getchromosome())
+                g.getgene().eq(name.getgene())
+                    && g.getchromosome().eq_ignore_ascii_case(name.getchromosome())
             }) {
                 let count = count.entry(name.getgene().clone()).or_insert(0);
                 if *count == 0 {
@@ -1824,7 +1845,8 @@ where
             } else {
                 name.getgene().name.replace(",", "_").trim().to_string()
             };
-            let newname = Genename::new(newname, name.getgene().exon.clone()).unwrap();
+            let newname = Genename::new(newname, name.getgene().exon.clone())
+                .unwrap_or_else(|_| unreachable!("Invalid name for gene"));
             name.setgene(newname);
             //name.setchromosome(name.getchromosome().replace(",", "_").trim().to_string());
         }
@@ -1905,13 +1927,29 @@ fn generategeneinfos(
         reads += 1;
         record.cache_cigar();
         if let Some(d) = hash.get_mut(&Position::newfromzposition(record.reference_start()))
-            && (record.cigar_cached().unwrap().leading_softclips() > 0
-                || record.cigar_cached().unwrap().leading_softclips() > 0)
+            && (record
+                .cigar_cached()
+                .unwrap_or_else(|| unreachable!("Cached before"))
+                .leading_softclips()
+                > 0
+                || record
+                    .cigar_cached()
+                    .unwrap_or_else(|| unreachable!("Cached before"))
+                    .leading_softclips()
+                    > 0)
         {
             d.addsoftclip(1);
         } else if let Some(d) = hash.get_mut(&Position::newfromzposition(record.reference_end()))
-            && (record.cigar_cached().unwrap().trailing_hardclips() > 0
-                || record.cigar_cached().unwrap().trailing_softclips() > 0)
+            && (record
+                .cigar_cached()
+                .unwrap_or_else(|| unreachable!("Cached before"))
+                .trailing_hardclips()
+                > 0
+                || record
+                    .cigar_cached()
+                    .unwrap_or_else(|| unreachable!("Cached before"))
+                    .trailing_softclips()
+                    > 0)
         {
             d.addsoftclip(1);
         }
@@ -1978,7 +2016,7 @@ fn generategeneinfos(
             }
             if aligned
                 .into_iter()
-                .any(|p| validrange(p, &gene.getpositionstart(), &gene.getpositionend()))
+                .any(|p| validrange(p, gene.getpositionstart(), gene.getpositionend()))
             {
                 let mut aligned = record.aligned_pairs();
                 let realstart =
@@ -2143,7 +2181,7 @@ fn genelist(
     let outputfile = outputdir.join(givename(
         species,
         loci.getlocus(),
-        &loci.getcontig(),
+        loci.getcontig(),
         loci.gethaplotype().isprimary(),
         "geneanalysis.csv",
         false,
@@ -2183,7 +2221,7 @@ fn printbreaks(
     let mut breakfile = File::create(outputdir.join(givename(
         species,
         loci.getlocus(),
-        &loci.getcontig(),
+        loci.getcontig(),
         loci.gethaplotype().isprimary(),
         "break.txt",
         false,
@@ -2243,7 +2281,7 @@ fn printpossus(
     let outputfile = outputdir.join(givename(
         species,
         loci.getlocus(),
-        &loci.getcontig(),
+        loci.getcontig(),
         loci.gethaplotype().isprimary(),
         "allele_confidence.csv",
         false,
@@ -2327,7 +2365,7 @@ where
         .build_cartesian_2d(1..hash.len(), 0..max)
         .map_err(|e| Box::new(io::Error::new(io::ErrorKind::InvalidInput, e.to_string())))?;
     //Reverse complement genes
-    let hash = gethash(&hash, gene);
+    let hash = gethash(hash, gene);
     chart
         .draw_series(LineSeries::new(
             hash.iter()
@@ -2605,8 +2643,8 @@ where
     }
     // To avoid the IO failure being ignored silently, we manually call the present function
     drawnoticetext(&bottom)?;
-    bottom.present().map_err(|_e| Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Unable to write result to file, please make sure 'plotters-doc-data' dir exists under current dir")))?;
-    top.present().map_err(|_e| Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Unable to write result to file, please make sure 'plotters-doc-data' dir exists under current dir")))?;
+    //bottom.present().map_err(|_e| Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Unable to write result to file, please make sure 'plotters-doc-data' dir exists under current dir")))?;
+    //top.present().map_err(|_e| Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Unable to write result to file, please make sure 'plotters-doc-data' dir exists under current dir")))?;
     Ok(())
 }
 fn gethash<'a, T>(
@@ -2659,7 +2697,7 @@ fn createcsv(
     let outputfile = outputdir.join(givename(
         species,
         loci.getlocus(),
-        &loci.getcontig(),
+        loci.getcontig(),
         loci.gethaplotype().isprimary(),
         "positionresult.csv",
         false,
@@ -2800,13 +2838,8 @@ where
     //let mut second = chart.set_secondary_coord(loci.getpositionstart()..loci.end, 0..max);
     secondary
         .draw_secondary_series(LineSeries::new(
-            pos.iter().filter_map(|p| {
-                if let Some(a) = p.qual {
-                    Some((p.position.getobasedpos(), min(a, max)))
-                } else {
-                    None
-                }
-            }),
+            pos.iter()
+                .filter_map(|p| p.qual.map(|a| (p.position.getobasedpos(), min(a, max)))),
             full_palette::BLACK.mix(0.4),
         ))
         .map_err(|e| Box::new(io::Error::new(io::ErrorKind::InvalidInput, e.to_string())))?
@@ -2905,7 +2938,7 @@ where
     }
     // To avoid the IO failure being ignored silently, we manually call the present function
     drawnoticetext(&root)?;
-    root.present().map_err(|_| Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Unable to write result to file, please make sure 'plotters-doc-data' dir exists under current dir")))?;
+    //root.present().map_err(|_| Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Unable to write result to file, please make sure 'plotters-doc-data' dir exists under current dir")))?;
     Ok(())
 }
 pub(crate) fn checknewversion() {
@@ -2937,7 +2970,7 @@ pub(crate) fn checknewversion() {
                     "A patch version of {} is available ({}). Please update when possible at {}.",
                     NAME.as_str(),
                     version,
-                    GITHUBHOME.to_string()
+                    *GITHUBHOME
                 );
             }
             (Ok(liveversion), Ok(actual)) if liveversion.gt(&actual) => {
@@ -2945,7 +2978,7 @@ pub(crate) fn checknewversion() {
                     "Another version of {} is available ({}). Please update at {} when possible.",
                     NAME.as_str(),
                     version,
-                    GITHUBHOME.to_string()
+                    *GITHUBHOME
                 );
             }
             _ => (),
@@ -3059,12 +3092,7 @@ where
     let text_style = fontstyle.into_text_style(&root);
     let max = max(
         usize::try_from(mean).unwrap_or(usize::MAX),
-        pos.iter()
-            .map(|max| max.getmaxvalue())
-            .max()
-            .unwrap_or(0)
-            .try_into()
-            .unwrap_or_default(),
+        pos.iter().map(|max| max.getmaxvalue()).max().unwrap_or(0),
     ) + 5;
     let _ = root.fill(&plotters::prelude::WHITE);
     let (top, bottom) = root.split_vertically((80).percent_height());
@@ -3075,7 +3103,7 @@ where
             None,
             Some(full),
             loci.getlength()
-                .saturating_sub(full.length(&loci.getpositionend()))
+                .saturating_sub(full.length(loci.getpositionend()))
                 / 9,
         )
     } else if let Some(full) = loci.getfulllength(args)
@@ -3092,7 +3120,7 @@ where
             ),
             Some(full),
             loci.getlength()
-                .saturating_sub(full.length(&loci.getpositionend()))
+                .saturating_sub(full.length(loci.getpositionend()))
                 / 9,
         )
     } else {
@@ -3396,6 +3424,6 @@ where
     }
     drawnoticetext(&root)?;
     // To avoid the IO failure being ignored silently, we manually call the present function
-    root.present().map_err(|_| Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Unable to write result to file, please make sure 'plotters-doc-data' dir exists under current dir")))?;
+    //root.present().map_err(|_| Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Unable to write result to file, please make sure 'plotters-doc-data' dir exists under current dir")))?;
     Ok(())
 }

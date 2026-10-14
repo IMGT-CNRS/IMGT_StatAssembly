@@ -11,7 +11,9 @@ use crate::r#struct::{
     LocusInfos, Name, Newfasta, Position, Positionstrand, ProgressReader, Seqresult, Species,
     Strand, safestring,
 };
-use crate::{EMAIL, NAME, PHYLUMLIMIT, TIMEOUT_IN_MN, VERSION, getassemblyreader, getreaderoffile};
+use crate::{
+    EMAIL, NAME, PHYLUMLIMIT, TIMEOUT_IN_MN, VERSION, getassemblyreader, getreaderoffile, givename,
+};
 use bio::io::fasta;
 use extended_htslib::bam::ext::BamRecordExtensions;
 use extended_htslib::bam::index::Type;
@@ -33,6 +35,7 @@ use std::io::{BufWriter, IsTerminal, Seek, Write};
 use std::num::NonZero;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::slice;
 use std::str::FromStr;
 use std::thread::{self, available_parallelism, sleep};
 use std::{
@@ -201,8 +204,8 @@ pub(crate) fn fastafilter(text: &str, find: &str, present: bool, species: bool) 
                 removeallspaces(&mut result.gene);
                 removeallspaces(&mut find);
                 match (present, species) {
-                    (true, true) => result.species.eq_ignore_ascii_case(&find),
-                    (false, true) => !result.species.eq_ignore_ascii_case(&find),
+                    (true, true) => result.species.starts_with(&find),
+                    (false, true) => !result.species.starts_with(&find),
                     (false, false) => !result.gene.contains(&find),
                     (true, false) => result.gene.contains(&find),
                 }
@@ -926,10 +929,10 @@ where
                         "Invalid species from NCBI.",
                     )));
                 }
-                Ok(Event::Start(c)) if c.name().as_ref().eq_ignore_ascii_case(b"Id") => {
+                Ok(Event::Start(c)) if c.name().as_ref().eq_ignore_ascii_case("Id") => {
                     match xml
                         .read_text(c.name())
-                        .map(|a| String::from_utf8_lossy(&a).parse::<usize>())
+                        .map(|a| String::from_utf8_lossy(a.as_bytes()).parse::<usize>())
                     {
                         Ok(Ok(a)) => break a,
                         _ => continue,
@@ -982,37 +985,37 @@ where
     let goodtaxononomy = loop {
         match xml.read_event() {
             Ok(Event::Eof) => break false,
-            Ok(Event::Start(b)) if b.name().as_ref() == b"LineageEx" => {
+            Ok(Event::Start(b)) if b.name().as_ref() == "LineageEx" => {
                 lineage = true;
                 continue;
             }
-            Ok(Event::Start(a)) if a.name().as_ref() == b"TaxId" && lineage => {
+            Ok(Event::Start(a)) if a.name().as_ref() == "TaxId" && lineage => {
                 match xml
                     .read_text(a.name())
-                    .map(|a| String::from_utf8_lossy(&a).parse::<usize>())
+                    .map(|a| String::from_utf8_lossy(a.as_bytes()).parse::<usize>())
                 {
                     Ok(Ok(a)) if a == PHYLUMLIMIT => break true,
                     _ => continue,
                 }
             }
             Ok(Event::Start(c))
-                if c.name().as_ref().eq_ignore_ascii_case(b"scientificname") && !lineage =>
+                if c.name().as_ref().eq_ignore_ascii_case("scientificname") && !lineage =>
             {
                 match xml.read_text(c.name()) {
-                    Ok(a) => scientificname = String::from_utf8_lossy(&a).to_string(),
+                    Ok(a) => scientificname = String::from_utf8_lossy(a.as_bytes()).to_string(),
                     _ => continue,
                 }
             }
-            Ok(Event::Start(c)) if c.name().as_ref().eq_ignore_ascii_case(b"Rank") && !lineage => {
+            Ok(Event::Start(c)) if c.name().as_ref().eq_ignore_ascii_case("Rank") && !lineage => {
                 match xml.read_text(c.name()) {
-                    Ok(a) => rank = String::from_utf8_lossy(&a).to_string(),
+                    Ok(a) => rank = String::from_utf8_lossy(a.as_bytes()).to_string(),
                     _ => continue,
                 }
             }
-            Ok(Event::Start(c)) if c.name().as_ref().eq_ignore_ascii_case(b"TaxId") && !lineage => {
+            Ok(Event::Start(c)) if c.name().as_ref().eq_ignore_ascii_case("TaxId") && !lineage => {
                 match xml
                     .read_text(c.name())
-                    .map(|a| String::from_utf8_lossy(&a).parse::<usize>())
+                    .map(|a| String::from_utf8_lossy(a.as_bytes()).parse::<usize>())
                 {
                     Ok(Ok(a)) => id = a,
                     _ => continue,
@@ -1069,7 +1072,7 @@ pub(crate) fn submit(
     };
     let lightbam = dir.join("outlight.bam");
     generatelightbam(args, &lightbam, None, locus)?;
-    let sequencefile = generatesequence(args, dir, false, locus)?;
+    let sequencefile = generatesequence(args, dir, false, locus, None)?;
     let sequencefiledecr = decompressseq(&sequencefile).map_err(|d| d.to_string())?;
     let mut motifs = matchmotif(sequencefiledecr.getpath(), realspecies, args, None)
         .map_err(|f| format!("Error matching motifs: {f}").to_string())?;
@@ -1259,7 +1262,7 @@ pub(crate) fn decompressseq(infos: &Filecrea) -> io::Result<Filecrea> {
             }
         };
         let newbuf = buf.split_at(n).0;
-        encoder.write_all(&newbuf)?;
+        encoder.write_all(newbuf)?;
     }
     if !count {
         return Err(io::Error::new(ErrorKind::InvalidData, "Invalid data"));
@@ -1286,9 +1289,19 @@ pub(crate) fn generatesequenceraw(
         for list in locus.iter() {
             let seq = list
                 .extractsequence(&mut assembly)
+                .and_then(|e| {
+                    if !bio::alphabets::dna::n_alphabet().is_word(e.as_bytes()) {
+                        Err(io::Error::new(
+                            InvalidData,
+                            "Sequence contains invalid characters".to_string(),
+                        ))
+                    } else {
+                        Ok(e)
+                    }
+                })
                 .unwrap_or("Sequence is unavailable".to_string());
             fastawriter.write(
-                &format!("{}", list.getcontig()),
+                &list.getcontig().to_string(),
                 Some(&format!(
                     "{}:{}-{}/{}",
                     list.getlocushaplo(),
@@ -1304,16 +1317,46 @@ pub(crate) fn generatesequenceraw(
     cursor.rewind()?;
     Ok(cursor)
 }
+pub(crate) fn generatesplitsequence(
+    args: &Args,
+    dir: &Path,
+    species: &Species,
+    tmp: bool,
+    locus: &[LocusInfos],
+) -> Result<Vec<Filecrea>, String> {
+    let mut files = Vec::new();
+    for l in locus {
+        let name = givename(
+            species,
+            l.getlocus(),
+            l.getcontig(),
+            l.gethaplotype().isprimary(),
+            "sequence.fasta.gz",
+            false,
+        );
+        files.push(generatesequence(
+            args,
+            dir,
+            tmp,
+            slice::from_ref(l),
+            Some(name),
+        ));
+    }
+    files.into_iter().collect()
+}
 pub(crate) fn generatesequence(
     args: &Args,
     dir: &Path,
     tmp: bool,
     locus: &[LocusInfos],
+    name: Option<String>,
 ) -> Result<Filecrea, String> {
-    let sequencefile = if tmp {
-        Filecrea::createtemp(None, Some("sequence.fasta.gz")).map_err(|d| d.to_string())?
-    } else {
-        Filecrea::createfrompath(Path::join(dir, "sequence.fasta.gz"))
+    let sequencefile = match (tmp, name) {
+        (true, _) => {
+            Filecrea::createtemp(None, Some("sequence.fasta.gz")).map_err(|d| d.to_string())?
+        }
+        (false, None) => Filecrea::createfrompath(Path::join(dir, "sequence.fasta.gz")),
+        (false, Some(n)) => Filecrea::createfrompath(Path::join(dir, n)),
     };
     let mut cursor = generatesequenceraw(args, locus).map_err(|d| d.to_string())?;
     let elem = sequencefile
@@ -1334,11 +1377,11 @@ pub(crate) fn generatesequence(
         };
         let newbuf = buf.split_at(n).0;
         encoder
-            .write_all(&newbuf)
+            .write_all(newbuf)
             .map_err(|d| format!("Cannot write sequence. Error is {d}"))?;
     }
-    encoder.flush().map_err(|_| format!("Error flushing"))?;
-    encoder.finish().map_err(|_| format!("Error gzip"))?;
+    encoder.flush().map_err(|_| "Error flushing".to_string())?;
+    encoder.finish().map_err(|_| "Error gzip".to_string())?;
     Ok(sequencefile)
 }
 pub(crate) fn generatelightbam<T>(
@@ -1383,8 +1426,8 @@ where
                 .get(),
         );
         let mut locus = locus.to_vec();
-        locus.sort_unstable_by(|a, b| match a.getcontig().cmp(&b.getcontig()) {
-            Ordering::Equal => a.getpositionstart().cmp(&b.getpositionstart()),
+        locus.sort_unstable_by(|a, b| match a.getcontig().cmp(b.getcontig()) {
+            Ordering::Equal => a.getpositionstart().cmp(b.getpositionstart()),
             ord => ord,
         });
         for f in locus.into_iter() {
@@ -1429,7 +1472,7 @@ where
                 .reference_start()
                 .cmp(&b.reference_start())
             {
-                Ordering::Equal => a.qname().cmp(&b.qname()),
+                Ordering::Equal => a.qname().cmp(b.qname()),
                 ord => ord,
             };
             //Sorting the BAM if it was not sorted aka one element is greater than the following
