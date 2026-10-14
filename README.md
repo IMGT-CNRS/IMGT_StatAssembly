@@ -1,6 +1,6 @@
 # IMGT/StatAssembly
 
-[[[[![zenodo](https://zenodo.org/badge/DOI/10.5281/zenodo.15016809.svg)](https://zenodo.org/doi/10.5281/zenodo.15016809)](https://doi.org/10.5281/zenodo.23363623)](https://doi.org/10.5281/zenodo.23363623)](https://doi.org/10.5281/zenodo.23363623)
+[![zenodo](https://zenodo.org/badge/DOI/10.5281/zenodo.15016809.svg)](https://doi.org/10.5281/zenodo.23363623)
 ![GitHub License](https://img.shields.io/github/license/IMGT-CNRS/IMGT_StatAssembly)
 ![GitHub Release](https://img.shields.io/github/v/release/IMGT-CNRS/IMGT_StatAssembly)
 
