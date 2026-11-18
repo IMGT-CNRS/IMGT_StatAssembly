@@ -1,5 +1,6 @@
 name: Release
-
+env:
+  RUSTFLAGS: "-Dwarnings --cfg reqwest_unstable"
 on:
   workflow_dispatch:
     inputs:
