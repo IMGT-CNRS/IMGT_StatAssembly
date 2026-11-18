@@ -257,11 +257,11 @@ For each assembly (in the graph named readresult.png) and for each allele (if ap
 For each read matching perfectly the gene, a score is assigned. The sum is the realreads100m score. The score is rounded in the graph. This score is the average PHRED score quality of the read at the gene position:
 
 - Phred score unknown or less than 10 gives 0,
-- Phred score between 11 and 20 gives 0.1 ($`\frac{1}{10}=10% `$),
-- Between 21 and 30 gives 0.3 (($`\frac{3}{10}`=30% `$)),
-- Between 31 and 40 gives 0.7 (($`\frac{7}{10}`=70% `$)),
-- Between 41 and 50 gives 0.9 (($`\frac{9}{10}`=90% `$)),
-- Above 51, the score is maximal: 1 ($`\frac{10}{10}`=100% `$).
+- Phred score between 11 and 20 gives 0.1 ($`\frac{1}{10}=10%`$),
+- Between 21 and 30 gives 0.3 (($`\frac{3}{10}`=30%`$)),
+- Between 31 and 40 gives 0.7 (($`\frac{7}{10}`=70%`$)),
+- Between 41 and 50 gives 0.9 (($`\frac{9}{10}`=90%`$)),
+- Above 51, the score is maximal: 1 ($`\frac{10}{10}`=100%`$).
 
 </details>
 
@@ -272,8 +272,8 @@ For a better overview of IMGT&reg; rules based on this analysis, check [IMGT&reg
 > [!NOTE]
 > For `readresult.png` and each allele graph, the color of the graph would indicate if the locus and/or gene meets IMGT&reg; criterias.
 >
-> - [X] ![<span class=](https://placehold.co/15x15/c5f015/c5f015.png)#c5f015#c5f015" /> Green for validation
-> - [ ] ![<span class=](https://placehold.co/15x15/f03c15/f03c15.png)#f03c15#f03c15" /> Red for rejection
+> - [x] ![#c5f015](https://placehold.co/15x15/c5f015/c5f015.png) Green for validation
+> - [ ] ![#f03c15](https://placehold.co/15x15/f03c15/f03c15.png) Red for rejection
 >
 > Criterias are as followed:
 >

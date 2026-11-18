@@ -1,8 +1,24 @@
-/*
-* IMGT/StatAssembly
-Available under EUPL license
-Made by: Guilhem Zeitoun and IMGT Team
-*/
+//! # IMGT/StatAssembly pdf generation
+//!
+//! This software analyzes BAM files to determine confidence levels on immunogenetic loci
+//! (specifically Immunoglobulin\[IG\] and T-cell receptor\[TR\] loci) as well as allele confidence.
+//!
+//! It was created and used by the IMGT Team (<https://www.imgt.org>).
+//!
+//! ## License
+//!
+//! Available under the EUPL license.
+//!
+//! ## Authors
+//!
+//! Made by Guilhem Zeitoun and the IMGT Team.
+//!
+//! ## Module
+//!
+//! PDF summary report generation (enabled with the `pdf` feature).
+//! Builds a two-page PDF listing the analyzed loci and the validated alleles.
+//!
+
 use std::io;
 use std::io::ErrorKind::InvalidInput;
 use std::io::Write;
@@ -20,6 +36,7 @@ use serde::Serialize;
 use crate::r#struct::{Blastmatch, Filecrea, GeneInfos, Genehit, LocusInfos};
 use crate::{AUTHOR, NAME, VERSION, getgeneinfos};
 
+/// Generates the PDF summary report (loci table + validated alleles table) in the output directory.
 pub(crate) fn generatepdf(
     infos: &[LocusInfos],
     hash: &HashMap<LocusInfos, Vec<Genehit>>,

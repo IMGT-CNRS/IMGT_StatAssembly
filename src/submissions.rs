@@ -1,8 +1,25 @@
-/*
-* IMGT/StatAssembly
-Available under EUPL license
-Made by: Guilhem Zeitoun and IMGT Team
-*/
+//! # IMGT/StatAssembly submission part
+//!
+//! This software analyzes BAM files to determine confidence levels on immunogenetic loci
+//! (specifically Immunoglobulin\[IG\] and T-cell receptor\[TR\] loci) as well as allele confidence.
+//!
+//! It was created and used by the IMGT Team (<https://www.imgt.org>).
+//!
+//! ## License
+//!
+//! Available under the EUPL license.
+//!
+//! ## Authors
+//!
+//! Made by Guilhem Zeitoun and the IMGT Team.
+//!
+//! ## Module
+//!
+//! Submission and external-tool helpers.
+//! Covers BLAST execution, IMGT/NCBI downloads, FASTA filtering, progress bars,
+//! sequence/light-BAM generation and preparation of the IMGT submission archive.
+//!
+
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::expect_used)]
 use crate::identification::{downloadmotifs, downloadref, retainbestmatch};
@@ -102,6 +119,7 @@ lazy_static! {
     );
 }
 
+/// Reads a yes/no answer from the terminal: `Some(true)` for yes, `Some(false)` for no, `None` for the 'nothing' key.
 pub(crate) fn readfromterminal(
     yes: &char,
     no: &char,
@@ -134,6 +152,7 @@ pub(crate) fn readfromterminal(
 }
 #[deprecated]
 #[allow(unused)]
+/// Extracts the allele name (3rd pipe-separated field) from a BLAST header. Deprecated.
 pub(crate) fn getnamefromblast<T>(text: T) -> Option<String>
 where
     T: AsRef<str>,
@@ -144,6 +163,7 @@ where
         .nth(2)
         .map(|f| f.to_string())
 }
+/// Extracts the contig name (4th pipe-separated field, uppercased) from a BLAST header.
 pub(crate) fn getchromosomefromblast<T>(text: T) -> Option<String>
 where
     T: AsRef<str>,
@@ -154,6 +174,7 @@ where
         .nth(3)
         .map(|f| f.to_string())
 }
+/// Parses the 5th pipe-separated field of a BLAST header into start/end positions and strand.
 pub(crate) fn getpositionfromblast(text: &str) -> Option<(Position, Position, Strand)> {
     text.to_ascii_uppercase().split("|").nth(4).and_then(|p| {
         let p = p.replace("/", "..");
@@ -179,10 +200,12 @@ pub(crate) fn getpositionfromblast(text: &str) -> Option<(Position, Position, St
         }
     })
 }
+/// Removes all ASCII whitespace from the string in place.
 pub(crate) fn removeallspaces(text: &mut String) {
     *text = text.chars().filter(|p| !p.is_ascii_whitespace()).collect();
 }
 #[must_use]
+/// Filters FASTA records by species or gene name, either keeping or removing the matches.
 pub(crate) fn fastafilter(text: &str, find: &str, present: bool, species: bool) -> String {
     let buffer = BufReader::new(text.as_bytes());
     let parser = fasta::Reader::new(buffer);
@@ -228,9 +251,11 @@ pub(crate) fn fastafilter(text: &str, find: &str, present: bool, species: bool) 
         .trim()
         .to_string()
 }
+/// Returns true if two inclusive ranges overlap.
 pub(crate) fn checkoverlap(a: &RangeInclusive<usize>, b: &RangeInclusive<usize>) -> bool {
     max(a.start(), b.start()) <= min(a.end(), b.end())
 }
+/// Returns true if the file exists and was accessed within the last 7 days.
 pub(crate) fn fileincache<T>(tempfile: T) -> bool
 where
     T: AsRef<Path>,
@@ -247,6 +272,7 @@ where
         })
         .is_ok_and(|f| f.unwrap_or_default())
 }
+/// Checks that the `blastn` executable is available in PATH and runs successfully.
 pub(crate) fn checkifblastpresent() -> bool {
     println!("Detect if BLAST is operating.");
     let command = Command::new("blastn")
@@ -263,6 +289,7 @@ pub(crate) fn checkifblastpresent() -> bool {
         true
     }
 }
+/// Retains only BLAST hits overlapping one of the given locus regions on the same contig.
 pub(crate) fn positionfiltering<T>(locus: &[LocusInfos], blast: &mut Vec<T>)
 where
     T: Blastcalc,
@@ -283,6 +310,7 @@ where
         })
     })
 }
+/// Retains only BLAST hits belonging to the given locus (TRD hits are kept together with TRA).
 pub(crate) fn locusfiltering<T>(locus: &Locus, blast: &mut Vec<T>)
 where
     T: Blastcalc,
@@ -296,6 +324,7 @@ where
         blast.retain(|p| p.getlocusname().as_ref() == Some(locus));
     }
 }
+/// Returns true if a FASTA record id or description matches the given locus.
 pub(crate) fn checklocus(p: &fasta::Record, locus: &Locus) -> bool {
     match locus {
         Locus::IGH => p.id().contains("IGH") || p.desc().is_some_and(|f| f.contains("IGH")),
@@ -311,6 +340,7 @@ pub(crate) fn checklocus(p: &fasta::Record, locus: &Locus) -> bool {
         Locus::TRG => p.id().contains("TRG") || p.desc().is_some_and(|f| f.contains("TRG")),
     }
 }
+/// Filters a reference FASTA down to one species (and optionally one locus), excluding /OR pseudogenes.
 pub(crate) fn speciesandorphonfiltering(
     tempfile: &mut Filecrea,
     locus: Option<&Locus>,
@@ -442,6 +472,7 @@ pub(crate) fn speciesandorphonfiltering(
     }
     Ok(outfile)
 }
+/// Reads all valid records from a FASTA reader into `Newfasta` entries.
 pub(crate) fn readfastareader<T>(fasta: fasta::Reader<T>) -> io::Result<Vec<Newfasta>>
 where
     T: std::io::BufRead,
@@ -475,11 +506,13 @@ where
     Ok(seqs)
 }
 #[allow(unused)]
+/// Opens a FASTA file and reads all valid records into `Newfasta` entries.
 pub(crate) fn readfastafile(seq: &Path) -> io::Result<Vec<Newfasta>> {
     let file = File::open(seq)?;
     let fasta = fasta::Reader::new(file);
     readfastareader(fasta)
 }
+/// Sorts motif BLAST hits and keeps only the best-scoring non-overlapping hit per allele, then sets their statuses.
 pub(crate) fn statusblastmotifs(data: &mut Vec<Blast>) {
     data.sort_unstable_by(|a, b| match a.sseqid.cmp(&b.sseqid) {
         std::cmp::Ordering::Equal => match a.sstart.cmp(&b.sstart) {
@@ -506,6 +539,7 @@ pub(crate) fn statusblastmotifs(data: &mut Vec<Blast>) {
         blastresult.setstatus();
     }
 }
+/// Keeps the best BLAST hit per subject/gene pair and sets statuses.
 pub(crate) fn statusblastvs(data: &mut Vec<Blast>) {
     data.sort_unstable_by(|a, b| match a.getsubject().cmp(b.getsubject()) {
         std::cmp::Ordering::Equal => a.getquery().gene.cmp(&b.getquery().gene),
@@ -529,6 +563,7 @@ pub(crate) fn statusblastvs(data: &mut Vec<Blast>) {
     }
 }
 #[allow(unused)]
+/// Keeps the best non-overlapping BLAST hit per position range and sets statuses.
 pub(crate) fn statusblast(data: &mut Vec<Blast>) {
     data.sort_unstable_by(|a, b| match a.sstart.cmp(&b.sstart) {
         std::cmp::Ordering::Equal => a.send.cmp(&b.send),
@@ -551,6 +586,7 @@ pub(crate) fn statusblast(data: &mut Vec<Blast>) {
         blastresult.setstatus();
     }
 }
+/// BLASTs the subject sequences against the IMGT motifs and returns the filtered matches.
 pub(crate) fn matchmotif(
     subject: &Path,
     species: &Species,
@@ -588,6 +624,7 @@ pub(crate) fn matchmotif(
     statusblastmotifs(&mut blast);
     Ok(blast.into_iter().map(|f| f.into()).collect())
 }
+/// Extracts gene sequences from the assembly, BLASTs them against the IMGT/GENE-DB reference and returns matches plus the release version.
 pub(crate) fn genesblast(
     subject: &[GeneInfos],
     args: &Args,
@@ -703,6 +740,7 @@ pub(crate) fn locuspos(
     Some((opt.clone(), bl))
 }
      */
+/// Returns an iterator over validated gene hits whose match overlaps a larger motif hit (potential new alleles).
 pub(crate) fn filter_new_alleles<'a, T>(
     data: &'a [Genehit],
     motifs: &'a [T],
@@ -723,6 +761,7 @@ where
         })
 }
 //if there is space, BLAST would cut the header and parsing would fail, we therefore regenerate a file for reference without this issue
+/// Rewrites the reference FASTA headers if they contain spaces or commas, dropping invalid sequences.
 fn checknospaceinheaderandvalidseq(
     reference: &mut Filecrea,
     _subject: &Filecrea,
@@ -757,6 +796,7 @@ fn checknospaceinheaderandvalidseq(
     }
     Ok(())
 }
+/// Runs `blastn` between a reference and a subject file and parses the tabular output into `Blast` records.
 pub(crate) fn blastcommand<T>(
     reference: T,
     subject: T,
@@ -1053,6 +1093,7 @@ where
         ))),
     }
 }
+/// Prepares the submission directory (light BAM, sequences, motif matches, potential new alleles) and optionally uploads it to IMGT.
 pub(crate) fn submit(
     args: &Args,
     locus: &[crate::LocusInfos],
@@ -1183,12 +1224,14 @@ pub(crate) fn submit(
     //form(&client);
     //
 }
-pub fn asknonewalleles() -> bool {
+/// Asks the user whether to continue even though no new alleles were found.
+pub(crate) fn asknonewalleles() -> bool {
     println!(
         "No new alleles has been found. IMGT can still process your data, do you want to continue (Y/n):"
     );
     readfromterminal(&'y', &'n', None, false).is_some_and(|a| a)
 }
+/// Checks IMGT server availability and asks the user before submitting results to IMGT.
 pub(crate) fn askforsubmission(
     realspecies: &Species,
     locus: &[LocusInfos],
@@ -1271,6 +1314,7 @@ pub(crate) fn decompressseq(infos: &Filecrea) -> io::Result<Filecrea> {
     let _ = encoder.finish()?;
     Ok(new)
 }
+/// Extracts the locus sequences from the assembly and returns them as an in-memory FASTA cursor.
 pub(crate) fn generatesequenceraw(
     args: &Args,
     locus: &[LocusInfos],
@@ -1317,6 +1361,7 @@ pub(crate) fn generatesequenceraw(
     cursor.rewind()?;
     Ok(cursor)
 }
+/// Generates one compressed sequence file per locus/haplotype.
 pub(crate) fn generatesplitsequence(
     args: &Args,
     dir: &Path,
@@ -1344,6 +1389,7 @@ pub(crate) fn generatesplitsequence(
     }
     files.into_iter().collect()
 }
+/// Generates the (optionally gzipped) FASTA sequence file for the given loci.
 pub(crate) fn generatesequence(
     args: &Args,
     dir: &Path,
@@ -1384,6 +1430,13 @@ pub(crate) fn generatesequence(
     encoder.finish().map_err(|_| "Error gzip".to_string())?;
     Ok(sequencefile)
 }
+/// Writes a light BAM file containing only the reads overlapping the given loci, and builds its index.
+///
+/// Writes a "light" BAM containing only reads overlapping the requested loci:
+/// the input BAM is re-opened once per locus, `fetch` restricts to the locus
+/// region, records are buffered in memory, re-sorted by (reference_start, qname)
+/// only if not already sorted, the MD tag is dropped and the CS tag shortened
+/// (for IMGT >= 2.1.0), then a CSI index (2^14) is built.
 pub(crate) fn generatelightbam<T>(
     args: &Args,
     light: T,
@@ -1403,7 +1456,7 @@ where
         light.as_ref().to_path_buf()
     };
     println!("Generating small BAM.");
-    let bam = if let Ok(r) = getreaderoffile(args) {
+    let mut bam = if let Ok(r) = getreaderoffile(args) {
         r
     } else {
         return Err("Cannot access BAM file for light bam.".to_string());
@@ -1431,11 +1484,11 @@ where
             ord => ord,
         });
         for f in locus.into_iter() {
-            let mut bam = if let Ok(r) = getreaderoffile(args) {
+            /* let mut bam = if let Ok(r) = getreaderoffile(args) {
                 r
             } else {
                 return Err("Cannot access BAM file for light bam.".to_string());
-            };
+            }; */
             if bam
                 .fetch((
                     f.getcontig().as_bytes(),
@@ -1504,6 +1557,7 @@ where
     .map_err(|e| format!("Cannot build index. Error is {}", e))?;
     Ok(())
 }
+/// Opens the IMGT submission page in the default browser.
 pub(crate) fn browseropening() -> io::Result<()> {
     let link = SUBMISSIONLINK.as_str();
     println!(
@@ -1518,6 +1572,7 @@ pub(crate) fn browseropening() -> io::Result<()> {
         )),
     }
 }
+/// Creates a gzip archive of the submission directory.
 pub(crate) fn createarchive(args: &Args, dir: &Path) -> io::Result<Filecrea> {
     let temp = Filecrea::createtemp(Some(dir), Some(Path::new("submission.tar.gz")))?;
     let file = File::create(temp.getpath())?;
@@ -1528,6 +1583,7 @@ pub(crate) fn createarchive(args: &Args, dir: &Path) -> io::Result<Filecrea> {
     tar.finish()?;
     Ok(temp)
 }
+/// Archives the submission directory and sends it to IMGT (with a token, or after browser validation).
 pub(crate) fn preparesubmission(path: &Path, species: &Species, args: &Args) -> bool {
     let token = if let Some(a) = &args.mytoken {
         a.to_string()
@@ -1572,6 +1628,7 @@ pub(crate) fn preparesubmission(path: &Path, species: &Species, args: &Args) -> 
     );
     true
 }
+/// Returns a spinner progress bar for indeterminate work.
 pub(crate) fn getprogressbarspin() -> io::Result<ProgressBar> {
     let pb = ProgressBar::new(0);
     pb.enable_steady_tick(Duration::from_millis(100));
@@ -1588,6 +1645,7 @@ pub(crate) fn getprogressbarspin() -> io::Result<ProgressBar> {
     );
     Ok(pb)
 }
+/// Returns a classic progress bar with the given total length.
 pub(crate) fn getprogressbarclassic(total_size: u64) -> io::Result<ProgressBar> {
     let pb = ProgressBar::new(total_size);
     pb.set_style(
@@ -1605,6 +1663,7 @@ pub(crate) fn getprogressbarclassic(total_size: u64) -> io::Result<ProgressBar> 
     );
     Ok(pb)
 }
+/// Wraps a reader with a progress bar tracking the number of bytes read.
 pub(crate) fn getprogressbar<R>(size: u64, reader: R) -> io::Result<ProgressReader<R>> {
     let pb = ProgressBar::new(size);
     pb.set_style(
@@ -1620,6 +1679,7 @@ pub(crate) fn getprogressbar<R>(size: u64, reader: R) -> io::Result<ProgressRead
         total_bytes: size,
     })
 }
+/// Uploads the archive to the IMGT submission endpoint using the provided token.
 pub(crate) fn submission(token: &str, species: &Species, archive: Filecrea) -> io::Result<()> {
     let file_size = archive.getpath().metadata()?.len();
     let progress_reader = getprogressbar(file_size, archive.getfile()?)?;

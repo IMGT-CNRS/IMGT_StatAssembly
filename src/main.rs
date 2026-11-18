@@ -1,12 +1,34 @@
-/*
- * IMGT/StatAssembly
-This software allows the analysis of BAM files to identify the confidence on a locus (specifically IG and TR) as well as allele confidence.
-It was created and used by IMGT Team (https://www.imgt.org).
-Available under EUPL license
-Made by: Guilhem Zeitoun and IMGT Team
-*/
+//! # IMGT/StatAssembly
+//!
+//! This software analyzes BAM files to determine confidence levels on immunogenetic loci
+//! (specifically Immunoglobulin \[IG\] and T-cell receptor \[TR\] loci) as well as allele confidence.
+//!
+//! It was created and used by the IMGT Team (<https://www.imgt.org>).
+//!
+//! ## License
+//!
+//! Available under the EUPL license.
+//!
+//! ## Authors
+//!
+//! Made by Guilhem Zeitoun and the IMGT Team.
+//!
+//! ## Overview
+//!
+//! The program reads a BAM alignment file and a locus position file (CSV/TSV), then for each
+//! locus it:
+//! - Fetches all reads overlapping the locus region.
+//! - Computes per-position statistics (coverage, MAPQ distribution, mismatches, soft-clips, etc.).
+//! - Generates read-coverage and mismatch graphs (PNG or SVG).
+//! - Optionally BLASTs gene sequences against IMGT/GENE-DB to validate alleles.
+//! - Outputs CSV reports, graphs, and FASTA sequences.
+//!
+//! ## AI
+//!
+//! AI (Mistral AI) was used for documentation and validated by author.
 #![warn(clippy::unwrap_used)]
 #![warn(clippy::expect_used)]
+#![warn(clippy::iter_over_hash_type)]
 use crate::identification::locusallposition;
 #[cfg(feature = "pdf")]
 use crate::pdf::generatepdf;
@@ -102,7 +124,8 @@ lazy_static! {
     #[allow(clippy::unwrap_used)]
     static ref regexpword: regex::Regex = regex::Regex::new(r"[^-\w()]").unwrap_or_else(|_| unreachable!("Regex issue"));
 }
-/// Return block of genomic positions thanks to CS/MD tag or CIGAR = (preferred if existing)
+/// Returns blocks of genomic positions where the read matches the reference,
+/// using the CIGAR `=`/`X` operations (preferred) or the MD/CS tags as fallback.
 fn iterblock(record: &bam::Record) -> Option<Vec<[i64; 2]>> {
     match (
         record.aligned_blocks_match(),
@@ -130,6 +153,8 @@ fn iterblock(record: &bam::Record) -> Option<Vec<[i64; 2]>> {
     }
 }
 #[allow(clippy::type_complexity)]
+/// Determines whether a read has usable match blocks (CIGAR `=` or MD/CS).
+/// Returns the updated message flag, the matched ranges (if available), and all aligned ranges.
 fn iteralert(
     args: &Args,
     mut message: bool,
@@ -175,7 +200,8 @@ fn iteralert(
         }
     }
 }
-//Filter reads thanks to args provided, remove reverse or supplementary/secondary alignments
+/// Filters reads based on user arguments: excludes reverse reads if `--forward` is set,
+/// and excludes secondary/supplementary alignments unless `--allreads` is set.
 fn filterread(args: &Args, record: &bam::Record) -> bool {
     if args.forward && record.is_reverse() {
         return false;
@@ -185,6 +211,8 @@ fn filterread(args: &Args, record: &bam::Record) -> bool {
     }
     true
 }
+/// Opens the reference assembly FASTA file and returns an indexed reader.
+/// Automatically builds the `.fai` index if it is missing.
 fn getassemblyreader(args: &Args) -> io::Result<fasta::IndexedReader<File>> {
     let (assembly, index) = match (args.assembly.as_ref(), args.assemblyindex.as_ref()) {
         (Some(a), Some(b)) => (Some(File::open(a)?), Some(File::open(b)?)),
@@ -224,7 +252,8 @@ fn getassemblyreader(args: &Args) -> io::Result<fasta::IndexedReader<File>> {
         )
     })
 }
-//Check we can read BAM file and return the reader with desired threads
+/// Opens the BAM file and returns an indexed reader configured with the requested number of threads.
+/// Automatically builds the CSI index if it is missing.
 fn getreaderoffile(args: &Args) -> Result<IndexedReader, extended_htslib::errors::Error> {
     let threads: u32 = match args.threads {
         0 => available_parallelism()
@@ -259,12 +288,13 @@ fn getreaderoffile(args: &Args) -> Result<IndexedReader, extended_htslib::errors
     let _ = reader.set_threads(threads.get());
     Ok(reader)
 }
-// Inner vec to vec
 #[must_use]
+/// Flattens a vector of vectors into a single vector.
 fn unmergelocus<T>(initial: Vec<Vec<T>>) -> Vec<T> {
     initial.into_iter().flatten().collect_vec()
 }
-//Check there is one alternate for one primary.
+/// Groups locus entries so that each primary haplotype is paired with at most one alternate.
+/// Returns `None` if the grouping is invalid (e.g. split locus, missing primary, too many alternates).
 fn mergelocus(mut locus: Vec<LocusInfos>) -> Option<Vec<Vec<LocusInfos>>> {
     let mut elem: Vec<Vec<LocusInfos>> = Vec::with_capacity(locus.len());
     let mut actual: Vec<LocusInfos> = Vec::new();
@@ -314,7 +344,8 @@ fn mergelocus(mut locus: Vec<LocusInfos>) -> Option<Vec<Vec<LocusInfos>>> {
     };
     Some(elem)
 }
-//Get number of mismatches for the record (x 10_000 to get as an integer)
+/// Computes the global mismatch rate for a BAM record, scaled by `GLOBALMISMATCHFLOATING`
+/// (x10 000) to keep integer precision.
 fn getglobalmismatch(record: &bam::Record) -> usize {
     let length = if record.seq_len() != 0 {
         record.seq_len()
@@ -332,7 +363,9 @@ fn getglobalmismatch(record: &bam::Record) -> usize {
         _ => 0,
     }
 }
-//Parse the location csv with locus infos
+/// Parses the locus position CSV/TSV file and resolves locus coordinates.
+/// If an assembly and BLAST are available, missing coordinates are detected automatically.
+/// Returns the list of `LocusInfos`, optional BLAST matches, and the IMGT release version string.
 fn locusposparser(
     args: &Args,
     realspecies: &Species,
@@ -499,6 +532,8 @@ fn locusposparser(
     }
     Ok((locusrecord.0, locusrecord.1, release))
 }
+/// Generates or filters a BLAST gene list for the given loci.
+/// If no list is provided, it runs BLAST via `locusallposition`; otherwise it filters the existing list.
 fn generategenelist(
     blastlist: &Option<Vec<Blastmatch>>,
     speciesblast: &Species,
@@ -532,6 +567,7 @@ fn generategenelist(
     }
     Ok((None, None))
 }
+/// Converts BLAST match results into a vector of `GeneInfos` with resolved strand and positions.
 fn getgeneinfos(data: &[Blastmatch]) -> Vec<GeneInfos> {
     data.iter()
         .filter_map(|p| {
@@ -566,6 +602,8 @@ fn getgeneinfos(data: &[Blastmatch]) -> Vec<GeneInfos> {
         })
         .collect()
 }
+/// Writes the gene list to a CSV file (either a temporary file or `genelist_new.csv` in the output directory)
+/// and updates `args.geneloc` to point to the written file.
 fn printgenelist<T>(genelist: &mut [T], args: &mut Args, tmp: bool) -> io::Result<Option<Filecrea>>
 where
     T: GenesList + Positionstrand + Clone + Ord + serde::Serialize,
@@ -595,6 +633,7 @@ where
     args.geneloc = Some(genenamefile.getpath().to_path_buf());
     Ok(Some(genenamefile))
 }
+/// Writes the resolved locus positions to `newloc.csv` in the output directory.
 fn printnewloc(args: &Args, locus: &[LocusInfos]) -> io::Result<()> {
     let file = File::create(args.outdir.join("newloc.csv"))?;
     let mut csv = csv::WriterBuilder::new()
@@ -608,7 +647,8 @@ fn printnewloc(args: &Args, locus: &[LocusInfos]) -> io::Result<()> {
     csv.flush()?;
     Ok(())
 }
-//Check BAM file exists and outputdir is created and return it
+/// Validates that the BAM file and assembly (if provided) are readable, ensures the output
+/// directory exists (creating it if necessary), and returns a reference to the output path.
 fn checklocusandoutput(args: &Args) -> std::io::Result<&PathBuf> {
     //Check bam file exists
     if let Some(a) = &args.file
@@ -647,7 +687,9 @@ fn checklocusandoutput(args: &Args) -> std::io::Result<&PathBuf> {
     };
     Ok(outputdir)
 }
-//Process countings for each read
+/// Processes a single BAM record and updates per-position counters (total reads, MAPQ buckets,
+/// mismatches, soft-clips, overlaps, quality scores) within the locus range.
+/// Returns the updated message flag.
 fn processcounting(
     args: &Args,
     pos: &mut BTreeMap<Position, HashMapinfo>,
@@ -659,13 +701,10 @@ fn processcounting(
     let start = &Position::newfromzposition(record.reference_start());
     let end = &Position::newfromzposition(record.reference_end());
     //Get range to put the reads inclusive pos
-    let newrange = Position::new(
-        true,
-        max(
-            record.reference_start(),
-            locus.getpositionstart().getzbasedpos(),
-        ),
-    )
+    let newrange = Position::newfromzposition(max(
+        record.reference_start(),
+        locus.getpositionstart().getzbasedpos(),
+    ))
         ..Position::newfromzposition(min(
             locus.getpositionend().getobasedpos(),
             record.reference_end(),
@@ -771,6 +810,8 @@ fn processcounting(
     }
     Ok(message)
 }
+/// Scans the entire BAM file to compute global metrics: mean coverage, average read length,
+/// and average PHRED quality score. Results are returned as a `Params` struct.
 fn getmeancoveragelengthandphred(args: &Args) -> io::Result<Params> {
     let time = Instant::now();
     let mut reader: IndexedReader =
@@ -857,6 +898,8 @@ fn getmeancoveragelengthandphred(args: &Args) -> io::Result<Params> {
     println!("Calculated in {:.1} s", time.elapsed().as_secs_f32());
     Ok(Params::new(readavg, mean, phred))
 }
+/// Retrieves previously computed parameters from a file, or computes them from the BAM
+/// and caches the result in `meanpath` for future runs.
 fn getorsetparams(meanpath: &Path, args: &Args) -> io::Result<Params> {
     let params = match (
         args.paramsfile
@@ -894,6 +937,8 @@ fn getorsetparams(meanpath: &Path, args: &Args) -> io::Result<Params> {
     params.goodparams().map(|_| params)
 }
 #[allow(clippy::complexity)]
+/// Renders both the mismatch graph and the read-coverage graph for a locus onto the provided
+/// drawing areas.
 fn paintgraph<T>(
     loci: &LocusInfos,
     pos: &BTreeMap<Position, HashMapinfo>,
@@ -931,6 +976,7 @@ where
     };
     Ok(())
 }
+/// Reads `/proc/meminfo` and returns the available memory in kilobytes, if available.
 fn available_memory() -> Option<usize> {
     let contents = std::fs::read_to_string("/proc/meminfo").ok()?;
     let mem_info = contents
@@ -940,6 +986,8 @@ fn available_memory() -> Option<usize> {
     let available_mem: usize = size.parse().ok()?;
     Some(available_mem)
 }
+/// Fetches all reads overlapping a locus region and computes per-position statistics
+/// into a `BTreeMap<Position, HashMapinfo>`. Returns an empty map if the region has no data.
 fn posread(args: &Args, loci: &LocusInfos) -> io::Result<BTreeMap<Position, HashMapinfo>> {
     let mut pos: BTreeMap<Position, HashMapinfo> = BTreeMap::new();
     let mut reader = match getreaderoffile(args) {
@@ -1077,6 +1125,7 @@ fn posread(args: &Args, loci: &LocusInfos) -> io::Result<BTreeMap<Position, Hash
     });
     Ok(pos)
 }
+/// Capitalizes the first letter of a string and lowercases the rest (single-word `ucwords`).
 fn ucwords<'a, T>(s: T) -> Cow<'a, str>
 where
     T: AsRef<str>,
@@ -1094,6 +1143,8 @@ where
     }
     Cow::Owned(initial)
 }
+/// Handles the `find` sub-command: writes the resolved locus positions, generates a gene list
+/// via BLAST, and optionally creates a light BAM file.
 fn findanalyse(
     blastpresent: bool,
     blastcheck: &Option<Vec<Blastmatch>>,
@@ -1135,6 +1186,8 @@ fn findanalyse(
     }
 }
 #[allow(clippy::type_complexity)]
+/// Splits a drawing area vertically (for diploid) or horizontally (for haploid) and returns
+/// the top, optional bottom, and the original area.
 fn requestimage<T>(
     haplotypebool: bool,
     image: DrawingArea<T, Shift>,
@@ -1154,6 +1207,8 @@ where
         (a, None, image)
     }
 }
+/// Creates the `DrawingImage` struct containing SVG or PNG backends for the read-coverage
+/// and mismatch graphs, sized according to haplotype count.
 fn getdrawingmaps<'a>(
     issvg: bool,
     readname: &'a Path,
@@ -1194,6 +1249,8 @@ fn getdrawingmaps<'a>(
         }
     }
 }
+/// Entry point of the program. Parses arguments, validates inputs, processes each locus
+/// (read counting, graph generation, gene analysis, allele validation), and writes all outputs.
 fn main() -> ExitCode {
     let mut args = Args::parse();
     if !args.noversioncheck {
@@ -1601,6 +1658,8 @@ fn main() -> ExitCode {
     endmessage(&firstinstant, &args);
     ExitCode::SUCCESS
 }
+/// Returns a new map containing only validated loci and validated gene hits (used to produce
+/// the `validatedalleles` output).
 fn filtervalidatedallelesrecreate(
     entry: &BTreeMap<LocusInfos, Vec<Genehit>>,
 ) -> BTreeMap<LocusInfos, Vec<Genehit>> {
@@ -1611,12 +1670,14 @@ fn filtervalidatedallelesrecreate(
     entry.retain(|g, v| g.getstatus().isvalidated() && !v.is_empty());
     entry
 }
+/// Filters the locus hash in-place, keeping only new-and-validated alleles and validated loci.
 fn filternewandvalidatedalleles(entry: &mut BTreeMap<LocusInfos, Vec<Genehit>>) {
     entry
         .values_mut()
         .for_each(|gene| gene.retain(|p| p.isnewalleleandvalid()));
     entry.retain(|g, v| g.getstatus().isvalidated() && !v.is_empty());
 }
+/// Inserts or appends gene hits for a locus into the result map.
 fn locushash(
     result: &[GeneInfosFinish],
     loci: &LocusInfos,
@@ -1631,6 +1692,7 @@ fn locushash(
         locushashresult.insert(loci.clone(), generation);
     }
 }
+/// Prints the final success message with the program name, version, elapsed time, and output path.
 fn endmessage(firstinstant: &Instant, args: &Args) {
     println!(
         "{} (version {}) done sucessfully in {:.3} seconds. Output files are located in {}.",
@@ -1640,6 +1702,7 @@ fn endmessage(firstinstant: &Instant, args: &Args) {
         args.outdir.display()
     );
 }
+/// Writes potential boundary positions (bornes) to `potentialbornes.csv` in the output directory.
 fn printpotentialbornes<T>(bornes: &[T], args: &Args) -> io::Result<()>
 where
     T: Blastcalc,
@@ -1669,6 +1732,8 @@ where
     csv.flush()?;
     Ok(())
 }
+/// Writes validated allele information (gene name, position, subject, locus, strand, best BLAST
+/// match, identity) to the given writer in CSV format.
 fn printvalidatedallelesraw<T, W>(
     writer: &mut T,
     release: Option<W>,
@@ -1736,7 +1801,8 @@ where
     csv.flush()?;
     Ok(())
 }
-// Print only validated alleles
+/// Writes validated alleles to two files: `allallelesblast.fasta` (all valid hits) and
+/// `validatedalleles.fasta` (only fully validated loci and alleles) thanks to [`printvalidatedallelesraw`].
 fn printvalidatedalleles<T>(
     args: &Args,
     release: Option<T>,
@@ -1753,6 +1819,8 @@ where
     let mut writer = File::create(path)?;
     printvalidatedallelesraw(&mut writer, release, args, &locushash)
 }
+/// Validates the gene list CSV file format and returns the parsed `GeneInfos`.
+/// Skips malformed lines with a warning instead of failing.
 fn checkgenelistformat(args: &Args) -> Result<Vec<GeneInfos>, Box<dyn std::error::Error>> {
     let geneloc = match &args.geneloc {
         Some(l) => l,
@@ -1805,12 +1873,13 @@ fn checkgenelistformat(args: &Args) -> Result<Vec<GeneInfos>, Box<dyn std::error
     checkandcorrectgenelistduplicate(&mut genes);
     Ok(genes)
 }
-/// Add underscore in case gene list has duplicates
+/// Resolves duplicate gene names on the same chromosome by appending underscores (`_`),
+/// and corrects inverted start/end coordinates based on strand with [Positionstrand::getcorrectstrand].
 fn checkandcorrectgenelistduplicate<T>(genes: &mut [T])
 where
     T: GenesList + Positionstrand + Ord + Clone,
 {
-    //Invert if start >= end because strand is given and won't work
+    //Invert if start >= end because strand isf given and won't work
     genes
         .iter_mut()
         .filter(|p| p.getstart() > p.getend())
@@ -1854,6 +1923,8 @@ where
     }
     genes.sort_unstable();
 }
+/// Reads the gene list from the file specified in args and filters genes to those that fall
+/// within the given locus region (unless `full` is true, in which case all genes are kept).
 fn extractgenelist(
     args: &Args,
     loci: &LocusInfos,
@@ -1878,6 +1949,9 @@ fn extractgenelist(
     checkandcorrectgenelistduplicate(&mut genes);
     Ok(genes)
 }
+/// Analyzes a single gene region: fetches overlapping reads from the BAM, computes per-position
+/// match/indel/insertion/soft-clip statistics, coverage percentage, and PHRED scores.
+/// Returns the `GeneInfosFinish` result and the per-position read map.
 fn generategeneinfos(
     args: &Args,
     gene: &mut GeneInfos,
@@ -2126,6 +2200,8 @@ fn generategeneinfos(
     );
     Ok((elem, hash))
 }
+/// Processes all genes within a locus: generates per-gene statistics and graphs, writes the
+/// `geneanalysis.csv` summary, and outputs suspicious/warning positions to `allele_confidence.csv`.
 fn genelist(
     loci: &LocusInfos,
     species: &Species,
@@ -2211,6 +2287,8 @@ fn genelist(
     println!("Gene analysis has been saved to {}", outputfile.display());
     Ok(finale)
 }
+/// Writes coverage break positions (regions with low overlapping reads) to a
+/// `break.txt` file, merging consecutive positions into ranges.
 fn printbreaks(
     species: &Species,
     finalpos: i64,
@@ -2271,6 +2349,7 @@ fn printbreaks(
     breakfile.flush()?;
     Ok(())
 }
+/// Writes suspicious (`!`) and warning (`~`) positions per gene to `allele_confidence.csv`.
 fn printpossus(
     _args: &Args,
     species: &Species,
@@ -2313,6 +2392,9 @@ fn printpossus(
     );
     Ok(())
 }
+/// Draws a two-panel graph for a single gene: top panel shows read coverage, sequence match,
+/// insertions, soft-clips, and warning/suspicious positions; bottom panel shows the average
+/// PHRED score. Records alerting positions into the `alerting` map.
 fn genegraph<T>(
     args: &Args,
     hash: &BTreeMap<Position, Posread>,
@@ -2647,6 +2729,8 @@ where
     //top.present().map_err(|_e| Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Unable to write result to file, please make sure 'plotters-doc-data' dir exists under current dir")))?;
     Ok(())
 }
+/// Returns the position-to-read map entries ordered according to the gene strand
+/// (reversed for minus strand, empty for unknown strand).
 fn gethash<'a, T>(
     hash: &'a BTreeMap<Position, Posread>,
     gene: &'a T,
@@ -2660,6 +2744,7 @@ where
         Strand::Minus => hash.iter().rev().collect(),
     }
 }
+/// Constructs a standardized output filename from species, locus, contig, haplotype, and suffix.
 fn givename(
     species: &Species,
     locus: &Locus,
@@ -2687,6 +2772,7 @@ fn givename(
         suffix
     )
 }
+/// Writes the per-position locus analysis results to a `positionresult.csv` file in the output directory.
 fn createcsv(
     outputdir: &std::path::Path,
     species: &Species,
@@ -2716,6 +2802,7 @@ fn createcsv(
     println!("CSV analysis has been saved to {}", outputfile.display());
     Ok(())
 }
+/// Draws a small attribution text ("Graph made by ...") in the bottom-right corner of a drawing area.
 fn drawnoticetext<T>(root: &DrawingArea<T, Shift>) -> Result<(), Box<dyn std::error::Error>>
 where
     T: DrawingBackend,
@@ -2738,6 +2825,8 @@ where
         .draw_text(&text, &text_style, size)
         .map_err(|p| Box::new(io::Error::other(p.to_string())))?)
 }
+/// Draws the mismatch/quality graph for a locus: top panel shows mismatch %, misalign %, and
+/// PHRED quality per genomic position; bottom panel (if `--totalread`) shows the global mismatch rate.
 fn mismatchgraph<T>(
     _outputfile: &std::path::Path,
     loci: &LocusInfos,
@@ -2941,6 +3030,7 @@ where
     //root.present().map_err(|_| Box::new(io::Error::new(io::ErrorKind::InvalidInput, "Unable to write result to file, please make sure 'plotters-doc-data' dir exists under current dir")))?;
     Ok(())
 }
+/// Check if a new version of the software is available and warn the user
 pub(crate) fn checknewversion() {
     let r = match REQUESTCLIENT
         .get(GITHUBVERSION.to_string())
@@ -2985,6 +3075,8 @@ pub(crate) fn checknewversion() {
         }
     }
 }
+/// Is gene validated by IMGT criterias?
+#[must_use]
 pub(crate) fn geneisokay(reads100m: usize, hash: &BTreeMap<Position, Posread>) -> OkStatus {
     if let Some(a) = hash
         .iter()
@@ -3022,11 +3114,14 @@ pub(crate) fn geneisokay(reads100m: usize, hash: &BTreeMap<Position, Posread>) -
         OkStatus::new(AcceptedStatus::Accepted, None)
     }
 }
+/// Check if a position is in a telomere (compared to length of loci)
 pub(crate) fn telomereposition(p: &Position, lengthloci: &Position) -> bool {
     lengthloci.getobasedpos().saturating_sub(p.getobasedpos())
         < TELOMERESEP.try_into().unwrap_or(i64::MAX)
         || p.getobasedpos() < TELOMERESEP.try_into().unwrap_or(i64::MAX)
 }
+///Does locus is validated by IMGT criterias?
+#[must_use]
 pub(crate) fn locusisokay(mean: u64, lengthloci: &Position, graph: &[&HashMapinfo]) -> OkStatus {
     //Between a minimum and a maximum number of reads
     if let Some(a) = graph
@@ -3071,12 +3166,16 @@ pub(crate) fn locusisokay(mean: u64, lengthloci: &Position, graph: &[&HashMapinf
         OkStatus::new(AcceptedStatus::Accepted, None)
     }
 }
+/// Get the coverage window for a locus to be accepted
 pub(crate) fn coveragewindow(mean: u64) -> RangeInclusive<u64> {
     max(
         MINIMUMCOVERAGE.try_into().unwrap_or_default(),
         (mean as f32 / MAXCOVERAGERATIO).round() as u64,
     )..=((mean as f32 * MAXCOVERAGERATIO).round() as u64)
 }
+/// Draws the read-coverage graph for a locus: top panel shows MAPQ distribution, mean coverage
+/// line, coverage boundaries, secondary/supplementary alignments, and overlapping reads;
+/// bottom panel shows coverage breaks, telomeric regions, and soft-clip percentages.
 fn readgraph<T>(
     outputfile: &std::path::Path,
     loci: &LocusInfos,

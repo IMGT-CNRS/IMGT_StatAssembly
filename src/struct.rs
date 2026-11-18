@@ -1,8 +1,25 @@
-/*
-* IMGT/StatAssembly
-Available under EUPL license
-Made by: Guilhem Zeitoun and IMGT Team
-*/
+//! # IMGT/StatAssembly struct
+//!
+//! This software analyzes BAM files to determine confidence levels on immunogenetic loci
+//! (specifically Immunoglobulin\[IG\] and T-cell receptor\[TR\] loci) as well as allele confidence.
+//!
+//! It was created and used by the IMGT Team (<https://www.imgt.org>).
+//!
+//! ## License
+//!
+//! Available under the EUPL license.
+//!
+//! ## Authors
+//!
+//! Made by Guilhem Zeitoun and the IMGT Team.
+//!
+//! ## Module
+//!
+//! Core data structures of IMGT/StatAssembly.
+//! Defines the CLI arguments, locus/position/strand types, BLAST result types,
+//! status enums, file wrapper (`Filecrea`) and the traits shared across modules.
+//!
+
 use crate::submissions::{
     REQUESTCLIENT, getchromosomefromblast, getpositionfromblast, getspeciesfromncbi,
 };
@@ -15,6 +32,7 @@ use clap::{Parser, ValueEnum, crate_authors};
 use extended_htslib::bam::IndexedReader;
 use indicatif::ProgressBar;
 use itertools::Itertools;
+use num_traits::{SaturatingAdd, SaturatingSub};
 use plotters::backend::{BitMapBackend, DrawingBackend, SVGBackend};
 use plotters::coord::Shift;
 use plotters::drawing::DrawingArea;
@@ -178,12 +196,12 @@ pub(crate) trait Positionstrand {
     fn setpositionend(&mut self, end: Position) -> Result<()>;
     /// Set strand
     fn setstrand(&mut self, strand: Strand);
-    /// Get correct strand
+    /// Get correct strand if start lower than end
     fn getcorrectstrand(&mut self) {
         let val = match self.getstrand() {
             Strand::Unknown if self.getpositionstart() > self.getpositionend() => {
                 let (start, end) = (*self.getpositionend(), *self.getpositionstart());
-                self.setpositionstart(Position::new(true, 0))
+                self.setpositionstart(Position::default())
                     .unwrap_or_else(|_| unreachable!("Position is 0"));
                 self.setpositionend(end)
                     .unwrap_or_else(|_| unreachable!("Position set incorrect."));
@@ -197,42 +215,48 @@ pub(crate) trait Positionstrand {
         self.setstrand(val);
     }
 }
-// Allow to manipulate tempfile and plain files and ensure remove of temp file when dropped.
+/// Allow to manipulate tempfile and plain files and ensure remove of temp file when dropped.
 pub(crate) struct Filecrea {
     file: Filechoice,
     delete: bool,
 }
+/// Private enum for Filecreation
 enum Filechoice {
     /// Should not rely on the path, that will be deleted on drop
     Temp(NamedTempFile),
     Plain(PathBuf),
 }
-//Drawingarea
+/// Drawing area
 pub(crate) enum Backend<'a> {
     Svg(DrawingArea<SVGBackend<'a>, Shift>),
     Png(DrawingArea<BitMapBackend<'a>, Shift>),
 }
 impl<'a> Backend<'a> {
+    /// Returns the SVG drawing area, if this backend is SVG.
     pub(crate) fn getsvg(self) -> Option<DrawingArea<SVGBackend<'a>, Shift>> {
         match self {
             Self::Svg(a) => Some(a),
             _ => None,
         }
     }
+    /// Returns the PNG drawing area, if this backend is PNG.
     pub(crate) fn getpng(self) -> Option<DrawingArea<BitMapBackend<'a>, Shift>> {
         match self {
             Self::Png(a) => Some(a),
             _ => None,
         }
     }
+    /// Returns whether the backend is SVG.
     pub(crate) fn issvg(&self) -> bool {
         matches!(self, Self::Svg(_))
     }
     #[allow(unused)]
+    /// Returns whether the backend is PNG.
     pub(crate) fn ispng(&self) -> bool {
         matches!(self, Self::Png(_))
     }
 }
+/// List of the images to draw (one for each type and one for top/bottom)
 pub(crate) struct DrawingImage<'a, T, E>
 where
     T: DrawingBackend,
@@ -271,6 +295,7 @@ where
             _ => Err("Invalid graph root to draw".to_string()),
         }
     }
+    /// Splits off the top drawing areas (read result + mismatch) and returns the rest.
     pub(crate) fn gettop(
         self,
     ) -> (
@@ -288,6 +313,7 @@ where
             },
         )
     }
+    /// Splits off the bottom drawing areas (read result + mismatch) and returns the rest.
     pub(crate) fn getbottom(
         self,
     ) -> (
@@ -307,6 +333,7 @@ where
     }
 }
 impl Filecrea {
+    /// Returns the underlying path of the file.
     pub(crate) fn getpath(&self) -> &Path {
         match &self.file {
             Filechoice::Temp(a) => a.path(),
@@ -324,6 +351,7 @@ impl Filecrea {
         File::create(a)
     }
     #[allow(unused)]
+    /// Marks the file to be deleted on drop.
     pub(crate) fn flagtodelete(&mut self) {
         self.delete = true;
     }
@@ -333,6 +361,7 @@ impl Filecrea {
         self.delete = false;
     }
     #[allow(unused)]
+    /// Converts a temporary file into a permanent file at the same path.
     pub(crate) fn transformtempintofile(mut self) -> Option<Self> {
         // Replace file by something else so it can dropped
         let file = std::mem::replace(&mut self.file, Filechoice::Temp(NamedTempFile::new().ok()?));
@@ -343,10 +372,12 @@ impl Filecrea {
         }
     }
     #[allow(unused)]
+    /// Returns whether this is a temporary file.
     pub(crate) fn istemp(&self) -> bool {
         matches!(self.file, Filechoice::Temp(_))
     }
     // Origin or/and suffix
+    /// Creates a new temporary file, optionally in a given directory and/or with a given suffix.
     pub(crate) fn createtemp<T>(origin: Option<T>, suffix: Option<T>) -> io::Result<Self>
     where
         T: AsRef<Path>,
@@ -362,6 +393,7 @@ impl Filecrea {
             delete: true,
         })
     }
+    /// Wraps an existing path as a plain (non-temporary) file.
     pub(crate) fn createfrompath<T>(path: T) -> Self
     where
         T: Into<PathBuf>,
@@ -373,6 +405,7 @@ impl Filecrea {
     }
 }
 impl From<PathBuf> for Filecrea {
+    /// Converts a value of another type into this type.
     fn from(value: PathBuf) -> Self {
         Self {
             file: Filechoice::Plain(value),
@@ -381,6 +414,7 @@ impl From<PathBuf> for Filecrea {
     }
 }
 impl From<NamedTempFile<File>> for Filecrea {
+    /// Converts a value of another type into this type.
     fn from(value: NamedTempFile<File>) -> Self {
         Self {
             file: Filechoice::Temp(value),
@@ -389,11 +423,14 @@ impl From<NamedTempFile<File>> for Filecrea {
     }
 }
 impl Drop for Filecrea {
+    /// Performs cleanup when the value is dropped.
     fn drop(&mut self) {
         //Remove file if not already deleted on drop
         match (&self.file, self.delete) {
             (Filechoice::Plain(_), false) => (),
             (Filechoice::Temp(e), _) => {
+                //e.close(); Cannot be used because we have mut
+                // Should be removed by the drop anyway but confirmed here
                 let _ = fs::remove_file(e);
                 //let _ = e.close();
             }
@@ -404,10 +441,12 @@ impl Drop for Filecrea {
     }
 }
 impl From<Filecrea> for PathBuf {
+    /// Converts a value of another type into this type.
     fn from(value: Filecrea) -> Self {
         value.getpath().to_path_buf()
     }
 }
+/// Name of the gitlabtag (need for parsing)
 #[derive(Debug, Deserialize)]
 pub(crate) struct GitLabTag {
     pub(crate) name: String,
@@ -419,6 +458,7 @@ pub(crate) enum Command {
     #[default]
     Full,
 }
+/// Validates an IMGT submission token (24 ASCII alphanumeric characters); used as a clap value parser.
 pub(crate) fn checktoken(s: &str) -> Result<String, String> {
     let s = s.trim();
     if !s.is_ascii() || s.len() != 24 || !s.chars().any(|p| p.is_ascii_alphanumeric()) {
@@ -429,23 +469,27 @@ pub(crate) fn checktoken(s: &str) -> Result<String, String> {
         Ok(String::from(s))
     }
 }
+/// Parses a `u8` and checks it lies within 0..=100; used as a clap value parser.
 pub(crate) fn less_than_100(s: &str) -> Result<u8, String> {
     match s.parse::<u8>() {
         Ok(s) if (0..=100).contains(&s) => Ok(s),
         _ => Err(String::from("Bad number, must be greater than 0.")),
     }
 }
+/// Locus and haplotype
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct LocusHaplo {
-    locus: Locus,
-    haplo: Haplotype,
+    pub(crate) locus: Locus,
+    pub(crate) haplo: Haplotype,
 }
 impl PartialOrd for LocusHaplo {
+    /// Returns the partial ordering of this value with another, if any.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 impl Ord for LocusHaplo {
+    /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> Ordering {
         match self.getlocus().cmp(other.getlocus()) {
             Ordering::Equal => self.haplo.cmp(&other.haplo),
@@ -454,6 +498,7 @@ impl Ord for LocusHaplo {
     }
 }
 impl Serialize for LocusHaplo {
+    /// Serializes the value with the given serializer.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -462,6 +507,7 @@ impl Serialize for LocusHaplo {
     }
 }
 impl<'de> Deserialize<'de> for LocusHaplo {
+    /// Deserializes a value of this type from the given deserializer.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
@@ -481,30 +527,36 @@ impl<'de> Deserialize<'de> for LocusHaplo {
     }
 }
 impl From<LocusInfos> for LocusHaplo {
+    /// Converts a value of another type into this type.
     fn from(value: LocusInfos) -> Self {
         value.locusinfo
     }
 }
 impl LocusHaplo {
     #[allow(unused)]
+    /// Returns the locus of the pair.
     fn getlocus(&self) -> &Locus {
         &self.locus
     }
     #[allow(unused)]
+    /// Returns the haplotype of the pair.
     fn gethaplo(&self) -> &Haplotype {
         &self.haplo
     }
 }
 impl Display for LocusHaplo {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} ({})", self.getlocus(), self.haplo)
     }
 }
 impl LocusHaplo {
+    /// Creates a new instance.
     pub(crate) fn new(locus: Locus, haplo: Haplotype) -> Self {
         Self { locus, haplo }
     }
 }
+/// Different kind of locus (IGI is not set yet)
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Hash, EnumIter)]
 #[allow(clippy::upper_case_acronyms)]
 pub(crate) enum Locus {
@@ -516,10 +568,12 @@ pub(crate) enum Locus {
     TRG,
 }
 impl Locus {
+    /// Replaces spaces, slashes and commas with safe characters so the string can be used in filenames.
     pub(crate) fn safestring(&self) -> Cow<'_, str> {
         safestring(self.to_string())
     }
 }
+/// Replaces spaces, slashes and commas with safe characters so the string can be used in filenames.
 pub(crate) fn safestring<'a, T>(val: T) -> Cow<'a, str>
 where
     T: Into<Cow<'a, str>>,
@@ -531,6 +585,7 @@ where
             .replace(",", "_"),
     )
 }
+/// Level of BLAST allowed by BLAST
 #[derive(Clone, Debug, PartialEq, PartialOrd, Ord, Default, Eq, Hash)]
 pub(crate) enum Blastlevel {
     #[allow(unused)]
@@ -558,12 +613,14 @@ impl Blastlevel {
         }
     }
 }
+/// Species error
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SpeciesError {
     Invalid(String),
     Blocked,
 }
 impl Display for SpeciesError {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Invalid(a) => write!(f, "Invalid: {}", a),
@@ -573,28 +630,35 @@ impl Display for SpeciesError {
 }
 impl std::error::Error for SpeciesError {}
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Species indication. ID is NCBI Taxonomy.
 pub(crate) struct Species {
-    rank: String,
-    name: String,
-    id: Option<usize>,
+    pub(crate) rank: String,
+    pub(crate) name: String,
+    pub(crate) id: Option<usize>,
 }
 impl Species {
+    /// Returns the getname.
     pub(crate) fn getname(&self) -> &str {
         &self.name
     }
+    /// Replaces spaces, slashes and commas with safe characters so the string can be used in filenames.
     pub(crate) fn safestring(&self) -> Cow<'_, str> {
         safestring(self.to_string())
     }
+    /// Returns the getid.
     pub(crate) fn getid(&self) -> Option<usize> {
         self.id
     }
+    /// Returns whether the species was validated against NCBI.
     pub(crate) fn ischecked(&self) -> bool {
         self.id.is_some()
     }
+    /// Returns the getrank.
     pub(crate) fn getrank(&self) -> &str {
         &self.rank
     }
     #[allow(unused)]
+    /// Creates a species without checking it against NCBI.
     pub(crate) fn newunchecked<T>(species: T) -> Self
     where
         T: AsRef<str>,
@@ -605,6 +669,7 @@ impl Species {
             id: None,
         }
     }
+    /// Creates a new instance.
     pub(crate) fn new<T>(species: T) -> Result<Self, SpeciesError>
     where
         T: AsRef<str>,
@@ -636,6 +701,7 @@ impl Species {
     }
 }
 impl Display for Species {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.name.to_string())
     }
@@ -648,6 +714,7 @@ pub(crate) struct ProgressReader<R> {
 }
 
 impl<R: io::Read> io::Read for ProgressReader<R> {
+    /// Reads bytes into the buffer and updates the progress bar.
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let bytes_read = self.reader.read(buf)?;
         if bytes_read > 0 {
@@ -656,6 +723,7 @@ impl<R: io::Read> io::Read for ProgressReader<R> {
         Ok(bytes_read)
     }
 }
+/// Name of the allele coming from IMGT header or indication
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Name {
     pub(crate) numacc: Option<String>,
@@ -667,15 +735,19 @@ pub(crate) struct Name {
     strand: Strand,
 }
 impl Positionstrand for Name {
+    /// Returns the getpositionend.
     fn getpositionend(&self) -> &Position {
         &self.posend
     }
+    /// Returns the getpositionstart.
     fn getpositionstart(&self) -> &Position {
         &self.posstart
     }
+    /// Returns the getstrand.
     fn getstrand(&self) -> &Strand {
         &self.strand
     }
+    /// Sets the end position.
     fn setpositionend(&mut self, end: Position) -> Result<()> {
         if &end < self.getpositionstart() {
             return Err(MyError("Invalid position".to_string()));
@@ -683,6 +755,7 @@ impl Positionstrand for Name {
         self.posend = end;
         Ok(())
     }
+    /// Sets the start position.
     fn setpositionstart(&mut self, start: Position) -> Result<()> {
         if &start > self.getpositionend() {
             return Err(MyError("Invalid position".to_string()));
@@ -690,11 +763,13 @@ impl Positionstrand for Name {
         self.posstart = start;
         Ok(())
     }
+    /// Sets the Strand.
     fn setstrand(&mut self, strand: Strand) {
         self.strand = strand;
     }
 }
 impl Serialize for Name {
+    /// Serializes the value with the given serializer.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -703,6 +778,7 @@ impl Serialize for Name {
     }
 }
 impl<'de> Deserialize<'de> for Name {
+    /// Deserializes a value of this type from the given deserializer.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
@@ -712,6 +788,7 @@ impl<'de> Deserialize<'de> for Name {
     }
 }
 impl From<Name> for Genename {
+    /// Converts a value of another type into this type.
     fn from(value: Name) -> Self {
         Genename {
             name: value.gene,
@@ -720,9 +797,11 @@ impl From<Name> for Genename {
     }
 }
 impl Name {
+    /// Returns the allele name part of the BLAST query name.
     pub(crate) fn getallelefromblast(&self) -> &str {
         self.gene.as_str()
     }
+    /// Creates a new instance.
     pub(crate) fn new(
         numacc: Option<String>,
         gene: String,
@@ -765,6 +844,7 @@ impl Name {
     }
 }
 impl Display for Name {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&format!(
             "{}|{}|{}|U|{}|{}..{}|",
@@ -779,6 +859,7 @@ impl Display for Name {
 }
 impl FromStr for Name {
     type Err = String;
+    /// Parses a string into this type.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let split: Vec<&str> = s.trim_matches('|').split("|").collect();
         let (numacc, gene, species, label, posstart, posend) = if split.len() >= 6 {
@@ -862,6 +943,7 @@ impl FromStr for Name {
         })
     }
 }
+/// Status of loci and alleles
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Hash)]
 pub(crate) enum AcceptedStatus {
     #[default]
@@ -872,6 +954,7 @@ pub(crate) enum AcceptedStatus {
 impl Not for AcceptedStatus {
     type Output = Self;
 
+    /// Returns the logical negation of the value.
     fn not(self) -> Self::Output {
         match self {
             AcceptedStatus::Unknown => Self::Unknown,
@@ -881,6 +964,7 @@ impl Not for AcceptedStatus {
     }
 }
 impl Display for AcceptedStatus {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AcceptedStatus::Unknown => write!(f, "Unknown"),
@@ -892,6 +976,7 @@ impl Display for AcceptedStatus {
 impl FromStr for AcceptedStatus {
     type Err = String;
 
+    /// Parses a string into this type.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_ascii_lowercase().as_str() {
             "unknown" => Ok(Self::Unknown),
@@ -902,29 +987,35 @@ impl FromStr for AcceptedStatus {
     }
 }
 impl AcceptedStatus {
+    /// Returns whether the status is Accepted.
     pub(crate) fn isvalid(&self) -> bool {
         *self == AcceptedStatus::Accepted
     }
     #[allow(dead_code)]
+    /// Returns whether the status is Rejected.
     pub(crate) fn isinvalid(&self) -> bool {
         *self == AcceptedStatus::Rejected
     }
     #[allow(dead_code)]
+    /// Returns whether the status is Unknown.
     pub(crate) fn isunknown(&self) -> bool {
         *self == AcceptedStatus::Unknown
     }
 }
+/// Status of valid and motif. Motif can be empty (for validated gene for example)
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub(crate) struct OkStatus {
     pub(crate) status: AcceptedStatus,
     pub(crate) motif: Option<String>,
 }
 impl From<OkStatus> for AcceptedStatus {
+    /// Converts a value of another type into this type.
     fn from(value: OkStatus) -> Self {
         value.status
     }
 }
 impl OkStatus {
+    /// Creates a new instance.
     pub(crate) fn new(status: AcceptedStatus, motif: Option<String>) -> Self {
         let (status, motif) = match (status, motif) {
             (a @ AcceptedStatus::Accepted | a @ AcceptedStatus::Unknown, _) => (a, None),
@@ -932,22 +1023,27 @@ impl OkStatus {
         };
         Self { status, motif }
     }
+    /// Returns the getstatus.
     pub(crate) fn getstatus(&self) -> &AcceptedStatus {
         &self.status
     }
     #[allow(unused)]
+    /// Returns the optional motif explanation attached to the status.
     pub(crate) fn getmotif(&self) -> &Option<String> {
         &self.motif
     }
+    /// Returns whether the status is validated (Accepted).
     pub(crate) fn isvalidated(&self) -> bool {
         self.status.isvalid()
     }
     #[allow(dead_code)]
+    /// Returns whether the status is Rejected.
     pub(crate) fn isrejected(&self) -> bool {
         self.status.isinvalid()
     }
 }
 impl Display for OkStatus {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -961,6 +1057,7 @@ impl Display for OkStatus {
 }
 impl FromStr for OkStatus {
     type Err = String;
+    /// Parses a string into this type.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (status, motif) = match s.split_once("because") {
             Some((a, b)) => (AcceptedStatus::from_str(a.trim())?, Some(b.trim())),
@@ -973,6 +1070,7 @@ impl FromStr for OkStatus {
     }
 }
 impl Serialize for OkStatus {
+    /// Serializes the value with the given serializer.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -981,6 +1079,7 @@ impl Serialize for OkStatus {
     }
 }
 impl<'de> Deserialize<'de> for OkStatus {
+    /// Deserializes a value of this type from the given deserializer.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
@@ -991,6 +1090,7 @@ impl<'de> Deserialize<'de> for OkStatus {
 }
 impl FromStr for Locus {
     type Err = io::Error;
+    /// Parses a string into this type.
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value.trim().to_ascii_uppercase().as_str() {
             "IGH" => Ok(Locus::IGH),
@@ -1006,6 +1106,7 @@ impl FromStr for Locus {
         }
     }
 }
+///Parameters of the analysis
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Params {
     pub(crate) readavg: u64,
@@ -1013,6 +1114,7 @@ pub struct Params {
     pub(crate) phredscore: u64,
 }
 impl Params {
+    /// Creates a new instance.
     pub(crate) fn new(readavg: u64, mean: u64, phredscore: u64) -> Self {
         Self {
             readavg,
@@ -1020,15 +1122,19 @@ impl Params {
             phredscore,
         }
     }
+    /// Returns the getavg.
     pub(crate) fn getavg(&self) -> u64 {
         self.readavg
     }
+    /// Returns the getmean.
     pub(crate) fn getmean(&self) -> u64 {
         self.mean
     }
+    /// Returns the getphred.
     pub(crate) fn getphred(&self) -> u64 {
         self.phredscore
     }
+    /// Validates the global params (non-zero mean coverage, long enough reads, high enough PHRED).
     pub(crate) fn goodparams(&self) -> io::Result<()> {
         match (self.mean, self.readavg, self.phredscore) {
             (0, ..) => Err(io::Error::new(
@@ -1053,6 +1159,7 @@ impl Params {
 }
 impl FromStr for Params {
     type Err = String;
+    /// Parses a string into this type.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         //Must be linked to to_string() method
         let trimandparse = |a: &str| {
@@ -1072,10 +1179,12 @@ impl FromStr for Params {
     }
 }
 impl Display for Params {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}:{}:{}", self.readavg, self.mean, self.phredscore)
     }
 }
+/// Status of every position for a gene. Warning and suspicious position lead to [`AcceptedStatus::Rejected`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum Alertpos {
@@ -1093,6 +1202,7 @@ pub(crate) trait Alerting {
     fn isvalid(&self) -> bool;
 }
 impl Alertpos {
+    /// Creates a new instance.
     fn new(record: &Posread) -> Self {
         let matches = record.getmatch().saturating_sub(record.getinsertion());
         let percent = if record.gettotal() > 0 {
@@ -1130,54 +1240,59 @@ impl Alerting for Alertpos {
         matches!(self, Self::Valid)
     }
 }
+/// Position definition based on 0 or 1 depending on the software. Field is private to avoid mistakes.
+/// This interpretation is key to avoid mistakes and should be relied every time.
+/// Implements addition and substraction, normal and saturating mode
+/// For example if the software returns a 0-based position:
+/// ```
+/// let onepos = Position::newfromoposition(1); //1 for 1-based is very first position
+/// assert_eq!(onepos,Position::default()); //which is also default
+/// let zeropos = Position::newfromzposition(0); //0 for 0-based is very first position
+/// assert_eq!(onepos,zeropos);
+/// ```
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-
 pub(crate) struct Position {
-    zbased: bool,
     position: i64,
 }
 impl PartialOrd for Position {
+    /// Returns the partial ordering of this value with another, if any.
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 impl Ord for Position {
+    /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.getzbasedpos().cmp(&other.getzbasedpos())
     }
 }
 impl Add for Position {
     type Output = Position;
+    /// Adds another value to this one.
     fn add(self, rhs: Self) -> Self::Output {
-        match self.iszbased() {
-            true => Position::new(
-                self.iszbased(),
-                self.getzbasedpos().saturating_add(rhs.getzbasedpos()),
-            ),
-            false => Position::new(
-                self.iszbased(),
-                self.getobasedpos().saturating_add(rhs.getobasedpos()),
-            ),
-        }
+        Position::new(self.position.add(rhs.position))
+    }
+}
+impl SaturatingAdd for Position {
+    fn saturating_add(&self, rhs: &Self) -> Self {
+        Position::new(self.position.saturating_add(rhs.position))
     }
 }
 impl Sub for Position {
     type Output = Position;
+    /// Subtracts another value from this one.
     fn sub(self, rhs: Self) -> Self::Output {
-        match self.iszbased() {
-            true => Position::new(
-                self.iszbased(),
-                self.getzbasedpos().saturating_sub(rhs.getzbasedpos()),
-            ),
-            false => Position::new(
-                self.iszbased(),
-                self.getobasedpos().saturating_sub(rhs.getobasedpos()),
-            ),
-        }
+        Position::new(self.position.sub(rhs.position))
+    }
+}
+impl SaturatingSub for Position {
+    fn saturating_sub(&self, rhs: &Self) -> Self {
+        Position::new(self.position.saturating_sub(rhs.position))
     }
 }
 ///Serialize as a 1-based position
 impl Serialize for Position {
+    /// Serializes the value with the given serializer.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -1188,11 +1303,13 @@ impl Serialize for Position {
 impl FromStr for Position {
     type Err = std::num::ParseIntError;
 
+    /// Parses a string into this type.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Position::newfromoposition(s.parse()?))
     }
 }
 impl<'de> Deserialize<'de> for Position {
+    /// Deserializes a value of this type from the given deserializer.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
@@ -1209,17 +1326,17 @@ impl<'de> Deserialize<'de> for Position {
     }
 }
 impl Default for Position {
+    /// Returns the default value of the type.
     fn default() -> Self {
-        Self {
-            zbased: true,
-            position: 0,
-        }
+        Self { position: 0 }
     }
 }
 impl Position {
-    pub(crate) fn new(zbased: bool, position: i64) -> Self {
-        Position { zbased, position }
+    /// Creates a new instance from 0-based position. Prefer using [Self::newfromzposition] or [Self::newfromoposition].
+    fn new(position: i64) -> Self {
+        Position { position }
     }
+    /// Returns the inclusive length between this position and another.
     pub(crate) fn length(&self, other: &Self) -> i64 {
         let min = std::cmp::min(self.getzbasedpos(), other.getzbasedpos());
         let max = std::cmp::max(self.getzbasedpos(), other.getzbasedpos());
@@ -1227,31 +1344,24 @@ impl Position {
             .and_then(|f| f.checked_add(1))
             .unwrap_or(0) //Calculate the length
     }
+    /// Returns the 0-based position.
     pub(crate) fn getzbasedpos(&self) -> i64 {
-        if self.zbased {
-            self.position
-        } else {
-            self.position.saturating_sub(1)
-        }
+        self.position
     }
+    /// Returns the 1-based position.
     pub(crate) fn getobasedpos(&self) -> i64 {
-        if self.zbased {
-            self.position.saturating_add(1)
-        } else {
-            self.position
-        }
+        self.position.saturating_add(1)
     }
-    #[allow(dead_code)]
-    pub(crate) fn iszbased(&self) -> bool {
-        self.zbased
-    }
+    /// Creates a position from a 0-based coordinate.
     pub(crate) fn newfromzposition(position: i64) -> Self {
-        Self::new(true, position)
+        Self::new(position)
     }
+    /// Creates a position from a 1-based coordinate.
     pub(crate) fn newfromoposition(position: i64) -> Self {
-        Self::new(false, position)
+        Self::new(position.saturating_sub(1))
     }
 }
+/// Information for every position analyzed for locus, allow to determinate [Alertpos] status.
 #[derive(Clone, Debug, PartialEq, Copy)]
 pub(crate) struct Posread {
     pub(crate) r#match: usize,
@@ -1264,19 +1374,23 @@ pub(crate) struct Posread {
     pub(crate) softclips: f32,
 }
 impl Alerting for Posread {
+    /// Returns whether iswarning.
     fn iswarning(&self) -> bool {
         self.getstate().iswarning()
     }
 
+    /// Returns whether issuspicious.
     fn issuspicious(&self) -> bool {
         self.getstate().issuspicious()
     }
 
+    /// Returns whether the status is Accepted.
     fn isvalid(&self) -> bool {
         self.getstate().isvalid()
     }
 }
 impl Default for Posread {
+    /// Returns the default value of the type.
     fn default() -> Self {
         Self {
             r#match: 0,
@@ -1292,6 +1406,7 @@ impl Default for Posread {
 }
 impl Posread {
     #[allow(dead_code)]
+    /// Creates a new instance.
     pub(crate) fn new(
         r#match: usize,
         indel: usize,
@@ -1318,43 +1433,56 @@ impl Posread {
     fn getstate(&self) -> Alertpos {
         Alertpos::new(self)
     }
+    /// Returns the gettotal.
     pub(crate) fn gettotal(&self) -> usize {
         self.total
     }
+    /// Returns the number of mismatched reads at this position.
     pub(crate) fn getmismatchcount(&self) -> usize {
         self.getindel().saturating_sub(self.getmatch())
     }
+    /// Returns the number of aligned (non-indel) reads at this position.
     pub(crate) fn getindelcount(&self) -> usize {
         self.gettotal().saturating_sub(self.getindel())
     }
+    /// Adds to the addtotal counter.
     pub(crate) fn addtotal(&mut self, count: usize) {
         self.total += count
     }
+    /// Returns the getmatch.
     pub(crate) fn getmatch(&self) -> usize {
         self.r#match
     }
+    /// Adds to the addmatch counter.
     pub(crate) fn addmatch(&mut self, count: usize) {
         self.r#match += count
     }
+    /// Returns the getindel.
     pub(crate) fn getindel(&self) -> usize {
         self.indel
     }
+    /// Adds to the addindel counter.
     pub(crate) fn addindel(&mut self, count: usize) {
         self.indel += count
     }
+    /// Adds to the addinsertion counter.
     pub(crate) fn addinsertion(&mut self, count: usize) {
         self.insertion += count
     }
+    /// Returns the getinsertion.
     pub(crate) fn getinsertion(&self) -> usize {
         self.insertion
     }
+    /// Adds to the addsoftclip counter.
     pub(crate) fn addsoftclip(&mut self, count: usize) {
         self.softclips += count as f32
     }
+    /// Returns the soft-clip ratio at this position.
     pub(crate) fn getsoftclip(&self) -> f32 {
         self.softclips
     }
 }
+/// Blast result
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct Blast {
     pub(crate) qseqid: Name,
@@ -1376,6 +1504,7 @@ pub(crate) struct Blast {
     #[serde(skip_deserializing)]
     pub(crate) status: Status,
 }
+/// Blast results after being treated
 #[repr(C)]
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Blastmatch {
@@ -1389,11 +1518,13 @@ pub(crate) struct Blastmatch {
     pub(crate) identity: f32,
 }
 impl PartialOrd for Blastmatch {
+    /// Returns the partial ordering of this value with another, if any.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 impl Ord for Blastmatch {
+    /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> Ordering {
         match self.sseqid.cmp(&other.sseqid) {
             std::cmp::Ordering::Equal => match self.sstart.cmp(&other.sstart) {
@@ -1405,6 +1536,7 @@ impl Ord for Blastmatch {
     }
 }
 impl PartialEq for Blastmatch {
+    /// Tests whether this value equals another.
     fn eq(&self, other: &Self) -> bool {
         self.qseqid == other.qseqid && self.sstart == other.sstart && self.send == other.send
     }
@@ -1412,6 +1544,7 @@ impl PartialEq for Blastmatch {
 impl Eq for Blastmatch {}
 impl Blastmatch {
     #[allow(clippy::too_many_arguments)]
+    /// Creates a new instance.
     pub(crate) fn new(
         qseqid: Name,
         sseqid: String,
@@ -1440,6 +1573,7 @@ impl Blastmatch {
     }
 }
 impl Blast {
+    /// Sets the match status (Equal / Shorter / New) from identity, query length and alignment length.
     pub(crate) fn setstatus(&mut self) {
         match (self.pident, self.qlen, self.length) {
             (100.0, a, b) if a == b => self.status = Status::Equal,
@@ -1451,6 +1585,7 @@ impl Blast {
 #[allow(clippy::from_over_into)]
 //Blastmatch is for matches, should not be converted in the inverted way
 impl From<Blast> for Blastmatch {
+    /// Converts a value of another type into this type.
     fn from(mut value: Blast) -> Self {
         value.setstatus();
         Blastmatch::new(
@@ -1466,6 +1601,7 @@ impl From<Blast> for Blastmatch {
     }
 }
 impl Display for Blastmatch {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&format!(
             ">{}{DELIMITERFASTA}{}:{}-{}-{}{DELIMITERFASTA}{}\n{}",
@@ -1480,6 +1616,7 @@ impl Display for Blastmatch {
     }
 }
 impl PartialEq for Blast {
+    /// Tests whether this value equals another.
     fn eq(&self, other: &Self) -> bool {
         self.qseqid == other.qseqid && self.sstart == other.sstart && self.send == other.send
     }
@@ -1487,7 +1624,9 @@ impl PartialEq for Blast {
 impl Eq for Blast {}
 pub trait Blastcalc {
     #[allow(dead_code)]
+    /// Returns the getseq.
     fn getseq(&self) -> Cow<'_, str>;
+    /// Returns the getstatus.
     fn getstatus(&self) -> &Status;
     /// Only return new alleles
     fn onlynewalleles(&self) -> bool {
@@ -1495,14 +1634,19 @@ pub trait Blastcalc {
     }
     /// get subject
     fn getsubject(&self) -> &str;
+    /// Returns the getpos.
     fn getpos(&self) -> (usize, usize);
+    /// Returns the inclusive position range of the hit.
     fn getposrange(&self) -> RangeInclusive<usize> {
         let r = self.getpos();
         r.0..=r.1
     }
     #[allow(dead_code)]
+    /// Returns the getstrand.
     fn getstrand(&self) -> &Strand;
+    /// Returns the getquery.
     fn getquery(&self) -> &Name;
+    /// Returns the allele name of the query.
     fn getallelename(&self) -> &str {
         self.getquery().getallelefromblast()
     }
@@ -1524,24 +1668,31 @@ pub trait Blastcalc {
     fn getidentity(&self) -> f32;
 }
 impl Blastcalc for Blast {
+    /// Returns the getseq.
     fn getseq(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.sseq)
     }
+    /// Returns the getsubject.
     fn getsubject(&self) -> &str {
         &self.sseqid
     }
+    /// Returns the getstatus.
     fn getstatus(&self) -> &Status {
         &self.status
     }
+    /// Returns the getpos.
     fn getpos(&self) -> (usize, usize) {
         (self.sstart, self.send)
     }
+    /// Returns the getstrand.
     fn getstrand(&self) -> &Strand {
         &self.complement
     }
+    /// Returns the getquery.
     fn getquery(&self) -> &Name {
         &self.qseqid
     }
+    /// Returns the percent identity of the hit.
     fn getidentity(&self) -> f32 {
         self.pident
     }
@@ -1551,15 +1702,19 @@ impl Blastcalc for Blastmatch {
     fn getseq(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.sseq)
     }
+    /// Returns the getsubject.
     fn getsubject(&self) -> &str {
         &self.sseqid
     }
+    /// Returns the getstatus.
     fn getstatus(&self) -> &Status {
         &self.status
     }
+    /// Returns the getstrand.
     fn getstrand(&self) -> &Strand {
         &self.complement
     }
+    /// Returns the getpos.
     fn getpos(&self) -> (usize, usize) {
         (self.sstart, self.send)
     }
@@ -1572,6 +1727,7 @@ impl Blastcalc for Blastmatch {
         self.identity
     }
 }
+/// Struct to print FASTA sequences
 #[derive(Clone, Debug)]
 pub(crate) struct Newfasta {
     qseqid: Name,
@@ -1587,15 +1743,19 @@ impl Blastcalc for Newfasta {
     fn getseq(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.sseq)
     }
+    /// Returns the getsubject.
     fn getsubject(&self) -> &str {
         &self.sseqid
     }
+    /// Returns the getstatus.
     fn getstatus(&self) -> &Status {
         &self.status
     }
+    /// Returns the getpos.
     fn getpos(&self) -> (usize, usize) {
         (*self.pos.start(), *self.pos.end())
     }
+    /// Returns the getstrand.
     fn getstrand(&self) -> &Strand {
         &self.strand
     }
@@ -1610,6 +1770,7 @@ impl Blastcalc for Newfasta {
 }
 impl Seqresult for Newfasta {}
 impl From<&dyn Blastcalc> for Newfasta {
+    /// Converts a value of another type into this type.
     fn from(value: &dyn Blastcalc) -> Self {
         Self {
             qseqid: value.getquery().clone(),
@@ -1626,6 +1787,7 @@ pub(crate) trait Seqresult: Blastcalc {}
 impl TryFrom<&str> for Status {
     type Error = io::Error;
 
+    /// Attempts to convert a value of another type into this type.
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value.to_lowercase().as_str() {
             "shorter" | "short" => Ok(Status::Shorter),
@@ -1638,6 +1800,7 @@ impl TryFrom<&str> for Status {
         }
     }
 }
+/// Status of a sequence compared to release
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Status {
     #[default]
@@ -1646,6 +1809,7 @@ pub(crate) enum Status {
     New,
 }
 impl Serialize for Status {
+    /// Serializes the value with the given serializer.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -1654,6 +1818,7 @@ impl Serialize for Status {
     }
 }
 impl Status {
+    /// Returns the gene name in serialized form.
     pub(crate) fn to_serialize(&self) -> Cow<'_, str> {
         Cow::Owned(match self {
             Status::Shorter => "shorter".to_string(),
@@ -1663,6 +1828,7 @@ impl Status {
     }
 }
 impl Display for Status {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&format!("{}", self.to_serialize()))
     }
@@ -1679,6 +1845,7 @@ impl Display for Status {
     }
 } */
 impl std::fmt::Display for &dyn Seqresult {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let (start, end) = self.getpos();
         write!(
@@ -1698,6 +1865,7 @@ impl std::fmt::Display for &dyn Seqresult {
 impl FromStr for Newfasta {
     type Err = String;
 
+    /// Parses a string into this type.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = if let Some(a) = s.trim().strip_prefix('>') {
             a
@@ -1759,12 +1927,14 @@ impl FromStr for Newfasta {
 pub(crate) struct MyError(String);
 pub type Result<T, E = MyError> = std::result::Result<T, E>;
 impl std::fmt::Display for MyError {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 impl std::error::Error for MyError {}
 impl Display for Locus {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Locus::IGH => write!(f, "IGH"),
@@ -1776,6 +1946,7 @@ impl Display for Locus {
         }
     }
 }
+/// Haplotype
 #[derive(Clone, Debug, PartialEq, Eq, Default, PartialOrd, Ord, Hash, EnumIter)]
 pub(crate) enum Haplotype {
     #[default]
@@ -1784,6 +1955,7 @@ pub(crate) enum Haplotype {
 }
 impl Not for Haplotype {
     type Output = Self;
+    /// Returns the logical negation of the value.
     fn not(self) -> Self::Output {
         match self {
             Haplotype::Primary => Haplotype::Alternate,
@@ -1794,6 +1966,7 @@ impl Not for Haplotype {
 impl FromStr for Haplotype {
     type Err = String;
 
+    /// Parses a string into this type.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "primary" | "pri" | "p" => Ok(Haplotype::Primary),
@@ -1803,6 +1976,7 @@ impl FromStr for Haplotype {
     }
 }
 impl<'de> Deserialize<'de> for Haplotype {
+    /// Deserializes a value of this type from the given deserializer.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
@@ -1814,6 +1988,7 @@ impl<'de> Deserialize<'de> for Haplotype {
     }
 }
 impl Serialize for Haplotype {
+    /// Serializes the value with the given serializer.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -1825,6 +2000,7 @@ impl Serialize for Haplotype {
     }
 }
 impl Display for Haplotype {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Primary => write!(f, "Primary"),
@@ -1833,14 +2009,17 @@ impl Display for Haplotype {
     }
 }
 impl Haplotype {
+    /// Returns whether this is the primary haplotype.
     pub(crate) fn isprimary(&self) -> bool {
         self == &Haplotype::Primary
     }
     #[allow(dead_code)]
+    /// Returns whether this is the alternate haplotype.
     pub(crate) fn isalternate(&self) -> bool {
         self == &Haplotype::Alternate
     }
 }
+/// Name and exon of a gene
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct Genename {
     pub(crate) name: String,
@@ -1848,6 +2027,7 @@ pub(crate) struct Genename {
 }
 impl Genename {
     #[allow(dead_code)]
+    /// Returns the locus parsed from the query name, if any.
     pub(crate) fn getlocusname(&self) -> Option<Locus> {
         Locus::from_str(self.name.split_at(3).0).ok()
     }
@@ -1875,6 +2055,7 @@ impl Genename {
     }
 }
 impl<'de> Deserialize<'de> for Genename {
+    /// Deserializes a value of this type from the given deserializer.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
@@ -1891,6 +2072,7 @@ impl<'de> Deserialize<'de> for Genename {
     }
 }
 impl Serialize for Genename {
+    /// Serializes the value with the given serializer.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -1899,6 +2081,7 @@ impl Serialize for Genename {
     }
 }
 impl Display for Genename {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -1911,6 +2094,7 @@ impl Display for Genename {
         )
     }
 }
+/// Informations for each gene
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct GeneInfos {
     pub(crate) gene: Genename,
@@ -1922,15 +2106,19 @@ pub(crate) struct GeneInfos {
     pub(crate) status: OkStatus,
 }
 impl Positionstrand for GeneInfos {
+    /// Returns the getpositionend.
     fn getpositionend(&self) -> &Position {
         &self.end
     }
+    /// Returns the getpositionstart.
     fn getpositionstart(&self) -> &Position {
         &self.start
     }
+    /// Returns the getstrand.
     fn getstrand(&self) -> &Strand {
         &self.strand
     }
+    /// Sets the end position.
     fn setpositionend(&mut self, end: Position) -> Result<()> {
         if &end < self.getpositionstart() {
             return Err(MyError("Invalid position".to_string()));
@@ -1938,6 +2126,7 @@ impl Positionstrand for GeneInfos {
         self.end = end;
         Ok(())
     }
+    /// Sets the start position.
     fn setpositionstart(&mut self, start: Position) -> Result<()> {
         if &start > self.getpositionend() {
             return Err(MyError("Invalid position".to_string()));
@@ -1945,11 +2134,13 @@ impl Positionstrand for GeneInfos {
         self.start = start;
         Ok(())
     }
+    /// Sets the strand.
     fn setstrand(&mut self, strand: Strand) {
         self.strand = strand;
     }
 }
 impl GeneInfos {
+    /// Creates a new instance.
     pub(crate) fn new(
         gene: Genename,
         chromosome: String,
@@ -1966,6 +2157,7 @@ impl GeneInfos {
             status: OkStatus::default(),
         }
     }
+    /// Builds a structured `Name` for this gene in the given species.
     pub(crate) fn settoname(&self, spec: &Species) -> Name {
         Name::new(
             Some(self.getchromosome().to_string()),
@@ -1977,6 +2169,7 @@ impl GeneInfos {
             self.getstrand().clone(),
         )
     }
+    /// Writes the gene sequence extracted from the assembly to the FASTA writer.
     pub(crate) fn addtosequence<T>(
         &self,
         seq: T,
@@ -1989,6 +2182,7 @@ impl GeneInfos {
         let gene = self.settoname(spec);
         fasta.write(&gene.to_string(), None, seq.as_ref())
     }
+    /// Extracts the gene sequence from the assembly reader.
     pub(crate) fn extractsequence(
         &self,
         fasta: &mut fasta::IndexedReader<File>,
@@ -2038,39 +2232,49 @@ impl GeneInfos {
             .map(|a| a.to_ascii_lowercase())
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
+    /// Returns the length of the region.
     pub(crate) fn getlength(&self) -> i64 {
         self.end.length(&self.start)
     }
 }
 impl GenesList for GeneInfos {
+    /// Returns the getgene.
     fn getgene(&self) -> &Genename {
         &self.gene
     }
+    /// Returns the getchromosome.
     fn getchromosome(&self) -> &str {
         &self.chromosome
     }
+    /// Sets the gene name.
     fn setgene(&mut self, gene: Genename) {
         self.gene = gene;
     }
+    /// Sets the chromosome.
     fn setchromosome(&mut self, chromosome: String) {
         self.chromosome = chromosome;
     }
 
+    /// Returns the getstatus.
     fn getstatus(&self) -> &OkStatus {
         &self.status
     }
 
+    /// Updates the validation status of the gene.
     fn alterstatus(&mut self, status: OkStatus) {
         self.status = status;
     }
+    /// Returns the getstart.
     fn getstart(&self) -> &Position {
         &self.start
     }
+    /// Returns the getend.
     fn getend(&self) -> &Position {
         &self.end
     }
 }
 impl LocusInfos {
+    /// Performs the `newfromlocushap` operation.
     pub(crate) fn newfromlocushap(
         locushap: LocusHaplo,
         contig: String,
@@ -2087,6 +2291,7 @@ impl LocusInfos {
             status: OkStatus::default(),
         }
     }
+    /// Creates a new instance.
     pub(crate) fn new(
         locus: Locus,
         haplotype: Haplotype,
@@ -2104,12 +2309,15 @@ impl LocusInfos {
             status: OkStatus::default(),
         }
     }
+    /// Returns the getcontig.
     pub(crate) fn getcontig(&self) -> &String {
         &self.contig
     }
+    /// Returns the locus of the pair.
     pub(crate) fn getlocus(&self) -> &Locus {
         &self.locusinfo.locus
     }
+    /// Fetches the locus region from the BAM reader.
     pub(crate) fn fetch(
         &self,
         reader: &mut IndexedReader,
@@ -2120,13 +2328,16 @@ impl LocusInfos {
             self.end.getobasedpos(),
         ))
     }
+    /// Returns the gethaplotype.
     pub(crate) fn gethaplotype(&self) -> &Haplotype {
         &self.locusinfo.haplo
     }
     #[allow(unused)]
+    /// Returns the getlocushaplo.
     pub(crate) fn getlocushaplo(&self) -> &LocusHaplo {
         &self.locusinfo
     }
+    /// Returns the full locus length, taking telomeric positions into account.
     pub(crate) fn getfulllength(&self, args: &Args) -> Option<Position> {
         let read = getassemblyreader(args).ok()?;
         read.index
@@ -2135,9 +2346,11 @@ impl LocusInfos {
             .find(|p| &p.name == self.getcontig())
             .map(|b| Position::newfromoposition(b.len.try_into().unwrap_or(i64::MAX)))
     }
+    /// Returns the getstatus.
     pub(crate) fn getstatus(&self) -> &OkStatus {
         &self.status
     }
+    /// Sets the match status (Equal / Shorter / New) from identity, query length and alignment length.
     pub(crate) fn setstatus(
         &mut self,
         mean: u64,
@@ -2148,11 +2361,18 @@ impl LocusInfos {
             mean,
             &self
                 .getfulllength(args)
-                .unwrap_or_else(|| Position::new(true, i64::MAX)),
+                .unwrap_or_else(|| Position::new(i64::MAX)),
             &pos.values().collect_vec(),
         )
     }
     /// Get position for alignment
+    ///
+    /// fullposition: maps a BLAST hit (query coords sstart/send) onto full locus
+    /// coordinates. On the reverse locus strand, positions are mirrored around
+    /// `qseqid.posend`; on the forward strand they are offset from `qseqid.posstart`
+    /// (note: `end` is computed by *subtracting* `send`, because BLAST reports
+    /// sstart <= send on the subject while the query end corresponds to the
+    /// smaller subject coordinate on a reverse-strand query).
     #[allow(dead_code)]
     pub(crate) fn fullposition(&self, record: &Blastmatch) -> Option<(Position, Position, Strand)> {
         let (start, end) = if self.strand.isrev() {
@@ -2179,7 +2399,12 @@ impl LocusInfos {
             },
         ))
     }
-    //From local position
+    /// Converts assembly coordinates of a hit into locus-relative coordinates.
+    ///
+    /// locusinposition / positioninlocus: inverse mappings between locus-relative
+    /// and assembly coordinates; both flip start/end when the locus is on the
+    /// minus strand and XOR the strands (`matchcomplement ^ complement`) to get
+    /// the effective strand.
     pub(crate) fn locusinposition(
         &self,
         newstart: &Position,
@@ -2213,7 +2438,10 @@ impl LocusInfos {
             },
         ))
     }
-    //Get global position
+    /// locusinposition / positioninlocus: inverse mappings between locus-relative
+    /// and assembly coordinates; both flip start/end when the locus is on the
+    /// minus strand and XOR the strands (`matchcomplement ^ complement`) to get
+    /// the effective strand.
     pub(crate) fn positioninlocus(
         &self,
         start: &Position,
@@ -2252,6 +2480,7 @@ impl LocusInfos {
             ))
         }
     }
+    /// Extracts the gene sequence from the assembly reader.
     pub(crate) fn extractsequence(
         &self,
         fasta: &mut fasta::IndexedReader<File>,
@@ -2266,27 +2495,32 @@ impl LocusInfos {
         };
         fake.extractsequence(fasta)
     }
+    /// Returns the length of the region.
     pub(crate) fn getlength(&self) -> i64 {
         self.end.length(&self.start)
     }
 }
 impl PartialEq for GeneInfos {
+    /// Tests whether this value equals another.
     fn eq(&self, other: &Self) -> bool {
         self.gene == other.gene
     }
 }
 impl std::hash::Hash for GeneInfos {
+    /// Hashes the value into the given hasher.
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.gene.hash(state);
     }
 }
 impl PartialOrd for GeneInfos {
+    /// Returns the partial ordering of this value with another, if any.
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 impl Ord for GeneInfos {
     //Filter by chromosome, then by start ASC and end DESC
+    /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         /* match self
             .getgene()
@@ -2312,6 +2546,7 @@ impl Ord for GeneInfos {
     }
 }
 impl Eq for GeneInfos {}
+/// Strand
 #[derive(Clone, Debug, Default, Serialize, PartialEq, Eq, Hash)]
 pub(crate) enum Strand {
     #[default]
@@ -2320,13 +2555,16 @@ pub(crate) enum Strand {
     Minus,
 }
 impl Strand {
+    /// Returns whether the status is Unknown.
     pub(crate) fn isunknown(&self) -> bool {
         self == &Strand::Unknown
     }
+    /// Returns whether the strand is the reverse (minus) strand.
     pub(crate) fn isrev(&self) -> bool {
         self == &Strand::Minus
     }
     #[allow(unused)]
+    /// Returns whether the strand is the forward (plus) strand.
     pub(crate) fn isfwd(&self) -> bool {
         self == &Strand::Plus
     }
@@ -2334,6 +2572,7 @@ impl Strand {
 impl Not for Strand {
     type Output = Self;
 
+    /// Returns the logical negation of the value.
     fn not(self) -> Self::Output {
         match self {
             Strand::Plus => Strand::Minus,
@@ -2343,6 +2582,7 @@ impl Not for Strand {
     }
 }
 impl<'de> Deserialize<'de> for Strand {
+    /// Deserializes a value of this type from the given deserializer.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
@@ -2363,6 +2603,7 @@ impl<'de> Deserialize<'de> for Strand {
     }
 }
 impl Display for Strand {
+    /// Formats the value for display.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Plus => write!(f, "FWD"),
@@ -2372,26 +2613,38 @@ impl Display for Strand {
     }
 }
 pub trait GenesList {
+    /// Returns the getgene.
     fn getgene(&self) -> &Genename;
+    /// Returns the chromosome.
     fn getchromosome(&self) -> &str;
+    /// Sets the setgene.
     fn setgene(&mut self, gene: Genename);
     #[allow(unused)]
+    /// Sets the chromosome.
     fn setchromosome(&mut self, chromosome: String);
     #[allow(dead_code)]
+    /// Returns the getstatus.
     fn getstatus(&self) -> &OkStatus;
+    /// Updates the validation status of the gene.
     fn alterstatus(&mut self, status: OkStatus);
+    /// Sets the match status (Equal / Shorter / New) from identity, query length and alignment length.
     fn setstatus(&mut self, reads100m: usize, hash: &BTreeMap<Position, Posread>) {
         self.alterstatus(geneisokay(reads100m, hash));
     }
+    /// Returns the getstart.
     fn getstart(&self) -> &Position;
+    /// Returns the getend.
     fn getend(&self) -> &Position;
 }
 #[derive(Clone, Debug)]
+/// List of PHRED scores for a designed [Position].
 pub(crate) struct Phred(Vec<Vec<u8>>);
 impl Phred {
+    /// Creates a new instance.
     pub(crate) fn new(score: Vec<Vec<u8>>) -> Self {
         Phred(score)
     }
+    /// Returns the per-block quality/annotation scores of the sequence.
     pub(crate) fn getscore(&self) -> Vec<&[u8]> {
         self.0.iter().map(Vec::as_slice).collect()
     }
@@ -2399,10 +2652,12 @@ impl Phred {
 impl IntoIterator for Phred {
     type IntoIter = std::vec::IntoIter<Vec<u8>>;
     type Item = Vec<u8>;
+    /// Converts the value into an iterator.
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
+/// Hit of a gene on release, needs geneinfosfinish because of filtering
 #[derive(Clone, Debug)]
 pub(crate) struct Genehit {
     pub(crate) geneinfo: GeneInfosFinish,
@@ -2410,16 +2665,19 @@ pub(crate) struct Genehit {
 }
 impl Eq for Genehit {}
 impl PartialEq for Genehit {
+    /// Tests whether this value equals another.
     fn eq(&self, other: &Self) -> bool {
         self.geneinfo.eq(&other.geneinfo)
     }
 }
 impl Ord for Genehit {
+    /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> Ordering {
         self.geneinfo.cmp(&other.geneinfo)
     }
 }
 impl PartialOrd for Genehit {
+    /// Returns the partial ordering of this value with another, if any.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -2449,27 +2707,34 @@ impl Genehit {
         }
         construct
     }
+    /// Returns the getgeneinfo.
     pub(crate) fn getgeneinfo(&self) -> &GeneInfosFinish {
         &self.geneinfo
     }
+    /// Returns the gethit.
     pub(crate) fn gethit(&self) -> Option<&Blastmatch> {
         self.hit.as_ref()
     }
+    /// Creates a new instance.
     pub(crate) fn new(geneinfo: GeneInfosFinish, hit: Option<Blastmatch>) -> Self {
         Genehit { geneinfo, hit }
     }
+    /// Returns whether the hit is a new allele, if a hit exists.
     pub(crate) fn isnewallele(&self) -> Option<bool> {
         self.hit.as_ref().map(|a| a.onlynewalleles())
     }
+    /// Returns the getstatus.
     pub(crate) fn getstatus(&self) -> &OkStatus {
         self.geneinfo.getstatus()
     }
+    /// Returns whether the hit is both a new allele and validated.
     pub(crate) fn isnewalleleandvalid(&self) -> bool {
         self.isnewallele()
             .is_some_and(|f| f && self.getstatus().getstatus().isvalid())
     }
 }
 impl From<GeneInfosFinish> for Genehit {
+    /// Converts a value of another type into this type.
     fn from(value: GeneInfosFinish) -> Self {
         Genehit {
             geneinfo: value,
@@ -2477,6 +2742,7 @@ impl From<GeneInfosFinish> for Genehit {
         }
     }
 }
+/// Final informations of gene, derivated from [GeneInfos].
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct GeneInfosFinish {
     pub(crate) gene: Genename,
@@ -2503,15 +2769,19 @@ pub(crate) struct GeneInfosFinish {
     pub(crate) status: OkStatus,
 }
 impl Positionstrand for GeneInfosFinish {
+    /// Returns the getpositionend.
     fn getpositionend(&self) -> &Position {
         &self.end
     }
+    /// Returns the getpositionstart.
     fn getpositionstart(&self) -> &Position {
         &self.start
     }
+    /// Returns the getstrand.
     fn getstrand(&self) -> &Strand {
         &self.strand
     }
+    /// Sets the position end.
     fn setpositionend(&mut self, end: Position) -> Result<()> {
         if &end < self.getpositionstart() {
             return Err(MyError("Invalid position".to_string()));
@@ -2519,6 +2789,7 @@ impl Positionstrand for GeneInfosFinish {
         self.end = end;
         Ok(())
     }
+    /// Sets the position start.
     fn setpositionstart(&mut self, start: Position) -> Result<()> {
         if &start > self.getpositionend() {
             return Err(MyError("Invalid position".to_string()));
@@ -2526,40 +2797,50 @@ impl Positionstrand for GeneInfosFinish {
         self.start = start;
         Ok(())
     }
+    /// Sets the strand.
     fn setstrand(&mut self, strand: Strand) {
         self.strand = strand;
     }
 }
 impl GenesList for GeneInfosFinish {
+    /// Returns the getgene.
     fn getgene(&self) -> &Genename {
         &self.gene
     }
 
+    /// Returns the getchromosome.
     fn getchromosome(&self) -> &str {
         &self.chromosome
     }
+    /// Sets the gene.
     fn setgene(&mut self, gene: Genename) {
         self.gene = gene;
     }
+    /// Sets the chromosome.
     fn setchromosome(&mut self, chromosome: String) {
         self.chromosome = chromosome;
     }
 
+    /// Returns the getstatus.
     fn getstatus(&self) -> &OkStatus {
         &self.status
     }
 
+    /// Updates the validation status of the gene.
     fn alterstatus(&mut self, status: OkStatus) {
         self.status = status;
     }
+    /// Returns the getstart.
     fn getstart(&self) -> &Position {
         &self.start
     }
+    /// Returns the getend.
     fn getend(&self) -> &Position {
         &self.end
     }
 }
 impl Ord for dyn GenesList {
+    /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         match self.getchromosome().cmp(other.getchromosome()) {
             core::cmp::Ordering::Equal => {}
@@ -2577,17 +2858,20 @@ impl Ord for dyn GenesList {
     }
 }
 impl PartialOrd for dyn GenesList {
+    /// Returns the partial ordering of this value with another, if any.
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 impl PartialEq for dyn GenesList {
+    /// Tests whether this value equals another.
     fn eq(&self, other: &Self) -> bool {
         self.getgene() == other.getgene()
     }
 }
 impl Eq for dyn GenesList {}
 impl From<GeneInfosFinish> for GeneInfos {
+    /// Converts a value of another type into this type.
     fn from(value: GeneInfosFinish) -> Self {
         GeneInfos {
             gene: value.gene,
@@ -2601,6 +2885,7 @@ impl From<GeneInfosFinish> for GeneInfos {
 }
 impl GeneInfosFinish {
     #[allow(clippy::too_many_arguments)]
+    /// Creates a new instance.
     pub(crate) fn new(
         gene: GeneInfos,
         reads: usize,
@@ -2632,15 +2917,18 @@ impl GeneInfosFinish {
             status: gene.status,
         }
     }
+    /// Creates a default (empty) finished gene entry for a gene.
     pub(crate) fn make_default(gene: GeneInfos) -> Self {
         Self::new(gene, 0, 0, None, 0, 0, 0f32, 0.0, Vec::new(), 0)
     }
+    /// Returns whether this finished gene entry is a default placeholder.
     pub(crate) fn isdefault(&self) -> bool {
         self.reads + self.readsfull + self.reads100 + self.reads100m == 0
             && self.status.getstatus().isunknown()
     }
 }
 impl Ord for GeneInfosFinish {
+    /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> Ordering {
         let a: &dyn GenesList = self;
         let b: &dyn GenesList = other;
@@ -2648,11 +2936,13 @@ impl Ord for GeneInfosFinish {
     }
 }
 impl PartialOrd for GeneInfosFinish {
+    /// Returns the partial ordering of this value with another, if any.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 impl PartialEq for GeneInfosFinish {
+    /// Tests whether this value equals another.
     fn eq(&self, other: &Self) -> bool {
         let a: &dyn GenesList = self;
         let b: &dyn GenesList = other;
@@ -2662,6 +2952,7 @@ impl PartialEq for GeneInfosFinish {
 impl Eq for GeneInfosFinish {}
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Hash)]
+/// Fake locus information (from parsing the locus)
 pub(crate) struct FakeLocusinfo {
     pub(crate) locus: Locus,
     //#[serde_as(as = "DefaultOnError<Option<DisplayFromStr>>")]
@@ -2683,6 +2974,7 @@ pub(crate) struct FakeLocusinfo {
     pub(crate) status: Option<OkStatus>,
 }
 impl From<LocusInfos> for FakeLocusinfo {
+    /// Converts a value of another type into this type.
     fn from(value: LocusInfos) -> Self {
         FakeLocusinfo {
             locus: value.locusinfo.locus,
@@ -2696,6 +2988,7 @@ impl From<LocusInfos> for FakeLocusinfo {
     }
 }
 impl FakeLocusinfo {
+    /// Creates a new instance.
     pub(crate) fn new(
         locus: Locus,
         haplotype: Option<Haplotype>,
@@ -2715,16 +3008,19 @@ impl FakeLocusinfo {
             status: okstatus,
         }
     }
+    /// Returns whether the locus entry still needs automatic detection.
     pub(crate) fn checkauto(&self) -> bool {
         self.contig
             .as_ref()
             .is_some_and(|p| p.eq_ignore_ascii_case("auto"))
     }
+    /// Resets the entry to auto mode if it was marked as such.
     pub(crate) fn checkandresetifauto(&mut self) {
         if self.checkauto() {
             self.contig = None;
         }
     }
+    /// Converts the CSV entry into a validated `LocusInfos`.
     pub(crate) fn intoloc(self) -> io::Result<LocusInfos> {
         match (&self.contig, self.start, self.end) {
             (Some(a), Some(b), Some(c)) if !self.checkauto() => {
@@ -2748,6 +3044,7 @@ impl FakeLocusinfo {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Hash)]
 #[repr(C)]
+/// Locus informations
 pub(crate) struct LocusInfos {
     pub(crate) locusinfo: LocusHaplo,
     pub(crate) contig: String,
@@ -2759,15 +3056,19 @@ pub(crate) struct LocusInfos {
     pub(crate) status: OkStatus,
 }
 impl Positionstrand for LocusInfos {
+    /// Returns the getpositionend.
     fn getpositionend(&self) -> &Position {
         &self.end
     }
+    /// Returns the getpositionstart.
     fn getpositionstart(&self) -> &Position {
         &self.start
     }
+    /// Returns the getstrand.
     fn getstrand(&self) -> &Strand {
         &self.strand
     }
+    /// Sets the end of position.
     fn setpositionend(&mut self, end: Position) -> Result<()> {
         if &end < self.getpositionstart() {
             return Err(MyError("Invalid position".to_string()));
@@ -2775,6 +3076,7 @@ impl Positionstrand for LocusInfos {
         self.end = end;
         Ok(())
     }
+    /// Sets the start position.
     fn setpositionstart(&mut self, start: Position) -> Result<()> {
         if &start > self.getpositionend() {
             return Err(MyError("Invalid position".to_string()));
@@ -2782,11 +3084,13 @@ impl Positionstrand for LocusInfos {
         self.start = start;
         Ok(())
     }
+    /// Sets the strand.
     fn setstrand(&mut self, strand: Strand) {
         self.strand = strand;
     }
 }
 impl Serialize for LocusInfos {
+    /// Serializes the value with the given serializer.
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -2806,15 +3110,18 @@ impl Serialize for LocusInfos {
     }
 }
 impl Ord for LocusInfos {
+    /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.locusinfo.cmp(&other.locusinfo)
     }
 }
 impl PartialOrd for LocusInfos {
+    /// Returns the partial ordering of this value with another, if any.
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
+/// Informations for each position before calculation
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct HashMapinfo {
     pub(crate) locuspos: Position,
@@ -2840,6 +3147,7 @@ pub(crate) struct HashMapinfo {
     #[serde(rename = "other-softclips")]
     pub(crate) osoftclips: f32,
 }
+/// Serde serializer helper for the optional quality value.
 fn qualcheck<S>(num: &Option<usize>, s: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -2849,6 +3157,7 @@ where
         _ => s.serialize_str("NC"),
     }
 }
+/// Serde deserializer helper for the optional quality value.
 fn qualdecheck<'a, S>(s: S) -> Result<Option<usize>, S::Error>
 where
     S: serde::Deserializer<'a>,
@@ -2866,12 +3175,14 @@ where
     }
 }
 impl PartialEq for HashMapinfo {
+    /// Tests whether this value equals another.
     fn eq(&self, other: &Self) -> bool {
         self.position == other.position
     }
 }
 impl Eq for HashMapinfo {}
 impl HashMapinfo {
+    /// Returns the maximum per-position counter value.
     pub(crate) fn getmaxvalue(&self) -> usize {
         let elem = [
             self.map0,
@@ -2902,16 +3213,19 @@ impl HashMapinfo {
     }
 }
 impl PartialOrd for HashMapinfo {
+    /// Returns the partial ordering of this value with another, if any.
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 impl Ord for HashMapinfo {
+    /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.getmaxvalue().cmp(&other.getmaxvalue())
     }
 }
 impl HashMapinfo {
+    /// Creates a default per-position info entry.
     pub(crate) fn smalldefault(locuspos: Position, position: Position) -> Self {
         HashMapinfo {
             locuspos,
@@ -2932,6 +3246,7 @@ impl HashMapinfo {
         }
     }
     #[allow(dead_code, clippy::too_many_arguments)]
+    /// Creates a new instance.
     pub(crate) fn new(
         locuspos: Position,
         position: Position,
@@ -2968,6 +3283,7 @@ impl HashMapinfo {
         }
     }
 }
+/// Serde serializer helper for the optional global mismatch value.
 fn globalmismatch<S>(num: &Option<usize>, s: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -2980,6 +3296,7 @@ where
         _ => s.serialize_str("NC"),
     }
 }
+/// Serde deserializer helper for the optional global mismatch value.
 fn globaldemismatch<'a, S>(s: S) -> Result<Option<usize>, S::Error>
 where
     S: serde::Deserializer<'a>,

@@ -1,8 +1,25 @@
-/*
-* IMGT/StatAssembly
-Available under EUPL license
-Made by: Guilhem Zeitoun and IMGT Team
-*/
+//! # IMGT/StatAssembly identification
+//!
+//! This software analyzes BAM files to determine confidence levels on immunogenetic loci
+//! (specifically Immunoglobulin\[IG\] and T-cell receptor\[TR\] loci) as well as allele confidence.
+//!
+//! It was created and used by the IMGT Team (<https://www.imgt.org>).
+//!
+//! ## License
+//!
+//! Available under the EUPL license.
+//!
+//! ## Authors
+//!
+//! Made by Guilhem Zeitoun and the IMGT Team.
+//!
+//! ## Module
+//!
+//! Automatic locus identification.
+//! Locates IG/TR loci on an assembly by BLASTing it against the IMGT/GENE-DB reference
+//! and aligning IMGT "bornes" (locus boundary sequences) with a long-read aligner.
+//!
+
 use bio::io::fasta;
 use itertools::Itertools;
 use rammap::Aligner;
@@ -36,6 +53,7 @@ use std::{
     time::Duration,
 };
 #[allow(clippy::type_complexity)]
+/// Runs BLAST (reference vs assembly) and the bornes alignment concurrently in scoped threads, with a global timeout.
 pub(crate) fn threadlaunch<T>(
     referencepath: Filecrea,
     subject: T,
@@ -191,6 +209,7 @@ where
         Ok((blast, bornes))
     })
 }
+/// Finds all IG/TR locus positions on the assembly; returns locus infos, BLAST matches and the IMGT release version.
 pub(crate) fn locusallposition(
     species: &Species,
     args: &Args,
@@ -330,9 +349,11 @@ pub(crate) fn locusallposition(
     };
     range.map(|f| (f, data, releaseversion))
 }
+/// Keeps only BLAST hits covering more than 80% of the query with at least 75% identity.
 pub(crate) fn retainbestmatch(blast: &mut Vec<Blast>) {
     blast.retain(|f| f.length * 100 / f.qlen > 80 && f.pident >= 75.0);
 }
+/// Downloads the IMGT bornes FASTA (gzipped) into the temp dir, using a 7-day cache unless bypassed.
 pub(crate) fn downloadbornes(args: &Args) -> Option<Filecrea> {
     println!("Downloading bornes sequence from IMGT");
     let tempfile = Path::join(&env::temp_dir(), "bornes.fasta");
@@ -365,6 +386,7 @@ pub(crate) fn downloadbornes(args: &Args) -> Option<Filecrea> {
         Some(Filecrea::createfrompath(tempfile))
     }
 }
+/// Downloads the IMGT motifs FASTA (gzipped) into the temp dir, using a 7-day cache unless bypassed.
 pub(crate) fn downloadmotifs(args: &Args) -> Option<Filecrea> {
     println!("Downloading motifs sequence from IMGT");
     let tempfile = Path::join(&env::temp_dir(), "motifs.fasta");
@@ -392,6 +414,41 @@ pub(crate) fn downloadmotifs(args: &Args) -> Option<Filecrea> {
     };
     Some(file)
 }
+/// Apply or retain bornes
+pub(crate) fn apply_borne(
+    block: &mut BTreeSet<Blastmatch>,
+    borne: &Blastmatch,
+    min: &Blastmatch, // first (leftmost) hit of the block
+    max: &Blastmatch, // last (rightmost) hit of the block
+) {
+    let range = min.sstart..=max.send;
+    if range.contains(&borne.sstart) || range.contains(&borne.send) {
+        // Borne falls inside the block: it marks the true locus edge, so trim the block.
+        if borne.send.saturating_sub(min.sstart) < borne.sstart.saturating_sub(max.send) {
+            block.retain(|p| p.sstart > borne.sstart); // borne at locus start: cut everything before/AT it
+        } else {
+            block.retain(|p| p.send < borne.send); // borne at locus end: cut everything after/AT it
+        }
+    } else if borne.sstart.abs_diff(min.sstart) <= BORNES
+        || borne.sstart.abs_diff(max.send) <= BORNES
+        || borne.send.abs_diff(max.send) <= BORNES
+        || borne.send.abs_diff(min.sstart) <= BORNES
+    {
+        // Borne just outside the block: it belongs to the locus, add it (extends the margin).
+        block.insert(borne.clone());
+    }
+}
+/// Groups BLAST hits into locus blocks per contig, uses bornes to delimit them if needed (depending on IMGT rules), and returns the best `LocusInfos` per haplotype.
+/// Returns None if failing.
+///
+/// Groups BLAST hits per (locus, contig) into "blocks" of continuous hits:
+/// a new block starts whenever the gap between two consecutive hits exceeds
+/// LOCUSSEPARATOR. IMGT "bornes" (locus boundary sequences) are then matched to
+/// the first/last hit of each block; a borne *inside* the block range trims the
+/// block (`retain`), a borne just outside it is added to the block and extends
+/// the locus margins by BORNES. Finally each block becomes one LocusInfos on the
+/// primary haplotype, and on the alternate haplotype only if that contig is not
+/// already used by the primary — the contig name decides haplotype assignment.
 pub(crate) fn find_global_best_range(
     blastcheck: &[Blastmatch],
     bornes: Option<&[Blastmatch]>,
@@ -414,7 +471,7 @@ pub(crate) fn find_global_best_range(
     hash.iter_mut().for_each(|(_, v)| {
         v.sort_unstable_by(|(_, a), (_, b)| match a.getsubject().cmp(b.getsubject()) {
             Ordering::Equal => match a.getpos().0.cmp(&b.getpos().0) {
-                Ordering::Equal => b.getpos().1.cmp(&b.getpos().1).reverse(),
+                Ordering::Equal => a.getpos().1.cmp(&b.getpos().1).reverse(),
                 ord => ord,
             },
             ord => ord,
@@ -428,40 +485,33 @@ pub(crate) fn find_global_best_range(
             (Option<Blastmatch>, Option<Blastmatch>),
         ),
     > = HashMap::new();
+    // Hashmap is sorted afterwards
+    #[allow(clippy::iter_over_hash_type)]
     for ((loci, subject), data) in hash.iter() {
-        let mut index = 0;
+        let mut block_id = 0;
+        let mut prev_end: Option<usize> = None;
         for (_, elem) in data {
-            //Count different blocks of continuous gene for each locus and chromosome. Index is the number of those blocks.
-            // Hash is already filtered by position
-            let d = match locusborne.get_mut(&(loci.clone(), subject.to_string(), index)) {
-                Some(a) => a,
-                None => {
-                    let mut e = BTreeSet::new();
-                    e.insert((*elem).clone());
-                    locusborne.insert(
-                        (loci.clone(), subject.to_string(), index),
-                        (e, (None, None)),
-                    );
-                    continue;
+            let starts_new_block = match prev_end {
+                Some(pe) => {
+                    std::cmp::max(pe, elem.sstart).abs_diff(std::cmp::min(pe, elem.sstart))
+                        > LOCUSSEPARATOR
                 }
+                None => true,
             };
-            if let Some(b) = d.0.last()
-                && std::cmp::max(b.sstart, b.send).abs_diff(std::cmp::min(elem.send, elem.sstart))
-                    <= LOCUSSEPARATOR
-            {
-                d.0.insert((*elem).clone());
-            } else {
-                index += 1;
-                let mut e = BTreeSet::new();
-                e.insert((*elem).clone());
-                locusborne.insert(
-                    (loci.clone(), subject.to_string(), index),
-                    (e, (None, None)),
-                );
+            if starts_new_block {
+                block_id += 1;
             }
+            prev_end = Some(std::cmp::max(elem.sstart, elem.send));
+            locusborne
+                .entry((loci.clone(), subject.to_string(), block_id))
+                .or_insert_with(|| (BTreeSet::new(), (None, None)))
+                .0
+                .insert((*elem).clone());
         }
     }
     if let Some(borneblast) = bornes {
+        // Hashmap is sorted afterwards
+        #[allow(clippy::iter_over_hash_type)]
         for (key, (val, (bornefirst, bornesecond))) in locusborne.iter_mut() {
             let itera = val.clone();
             let (loc, min, max) = match (key, itera.iter().min(), itera.iter().max()) {
@@ -485,35 +535,14 @@ pub(crate) fn find_global_best_range(
                         && (borne.send.abs_diff(max.send) <= LOCUSSEPARATOR
                         || borne.sstart.abs_diff(max.send) <= LOCUSSEPARATOR)
             });
-            let data = |borne: Option<&&Blastmatch>,
-                        toput: &mut Option<Blastmatch>,
-                        min: &Blastmatch,
-                        max: &Blastmatch,
-                        val: &mut BTreeSet<Blastmatch>| {
-                if let Some(hit) = borne {
-                    *toput = Some((*hit).clone());
-                    let range = min.sstart..=max.send;
-                    if range.contains(&hit.sstart) || range.contains(&hit.send) {
-                        if hit.send.saturating_sub(min.sstart) < hit.sstart.saturating_sub(max.send)
-                        {
-                            //Cutting after the borne
-                            //Bornes is at the beggining of the locus
-                            val.retain(|p| p.sstart > hit.sstart);
-                        } else {
-                            //Bornes is at the end of the locus
-                            val.retain(|p| p.send < hit.send);
-                        }
-                    } else if hit.sstart.abs_diff(min.sstart) <= BORNES
-                        || hit.sstart.abs_diff(max.send) <= BORNES
-                        || hit.send.abs_diff(max.send) <= BORNES
-                        || hit.send.abs_diff(min.sstart) <= BORNES
-                    {
-                        val.insert((*hit).clone());
-                    }
-                };
-            };
-            data(findfirstborne, bornefirst, min, max, val);
-            data(findsecondborne, bornesecond, min, max, val);
+            if let Some(b) = findfirstborne {
+                *bornefirst = Some((*b).clone());
+                apply_borne(val, b, min, max);
+            }
+            if let Some(b) = findsecondborne {
+                *bornesecond = Some((*b).clone());
+                apply_borne(val, b, min, max);
+            }
         }
     }
     if locusborne.is_empty() {
@@ -592,16 +621,14 @@ pub(crate) fn find_global_best_range(
             LocusInfos::newfromlocushap(
                 haplo,
                 sseq,
-                Position::new(
-                    false,
+                Position::newfromoposition(
                     start
                         .checked_sub(if hasbornes.0 { 0 } else { BORNES })
                         .unwrap_or(1)
                         .try_into()
                         .unwrap_or(1),
                 ),
-                Position::new(
-                    false,
+                Position::newfromoposition(
                     end.checked_add(if hasbornes.1 { 0 } else { BORNES })
                         .unwrap_or(1)
                         .try_into()
@@ -622,6 +649,7 @@ pub(crate) fn find_global_best_range(
     loc.sort_unstable();
     Some(loc)
 }
+/// Downloads a URL as text with a progress bar; `head=true` only checks reachability.
 pub(crate) fn sendresult(
     request: &reqwest::blocking::Client,
     url: &str,
@@ -675,6 +703,7 @@ pub(crate) fn sendresult(
         Err(e) => Err(format!("Error getting URL: {e}").to_string()),
     }
 }
+/// Downloads a gzip-compressed URL, decompresses it and returns the decoded text with a progress bar.
 pub(crate) fn sendresultcompressed(
     request: &reqwest::blocking::Client,
     url: &str,
@@ -744,6 +773,7 @@ pub(crate) fn sendresultcompressed(
         Err(e) => Err(format!("Error getting URL: {e}").to_string()),
     }
 }
+/// Downloads the IMGT/GENE-DB reference FASTA for the requested (or latest) release, using a cache unless bypassed.
 pub(crate) fn downloadref(
     allowdownload: bool,
     force: bool,

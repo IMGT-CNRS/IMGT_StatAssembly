@@ -1,16 +1,32 @@
-/*
-* IMGT/StatAssembly
-Available under EUPL license
-Made by: Guilhem Zeitoun and IMGT Team
-*/
+//! # IMGT/StatAssembly tests
+//!
+//! This software analyzes BAM files to determine confidence levels on immunogenetic loci
+//! (specifically Immunoglobulin\[IG\] and T-cell receptor\[TR\] loci) as well as allele confidence.
+//!
+//! It was created and used by the IMGT Team (<https://www.imgt.org>).
+//!
+//! ## License
+//!
+//! Available under the EUPL license.
+//!
+//! ## Authors
+//!
+//! Made by Guilhem Zeitoun and the IMGT Team.
+//!
+//! ## Module
+//!
+//! Unit and integration tests for IMGT/StatAssembly.
+//!
+
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[expect(clippy::unwrap_used)]
 #[allow(clippy::expect_used)]
 mod tests {
     use std::{
-        collections::BTreeMap,
+        collections::{BTreeMap, BTreeSet},
         fs::{self},
         io::{BufRead, BufReader, Cursor, ErrorKind::UnexpectedEof, Read as read2, Seek, Write},
+        ops::Add,
         path::{Path, PathBuf},
         process::{Command, Stdio},
         slice,
@@ -21,13 +37,14 @@ mod tests {
     use crate::{
         extractgenelist, filtervalidatedallelesrecreate, generategeneinfos, getorsetparams,
         getreaderoffile, givename,
-        identification::{sendresult, sendresultcompressed},
+        identification::{apply_borne, sendresult, sendresultcompressed},
         locusposparser,
         pileup::checksamtools,
         posread, printvalidatedallelesraw,
         r#struct::{
-            Args, FakeLocusinfo, Filecrea, Genehit, Genename, GenesList, Haplotype::Primary,
-            HashMapinfo, LocusHaplo, LocusInfos, Positionstrand, Species, SpeciesError,
+            Args, Blastmatch, FakeLocusinfo, Filecrea, Genehit, Genename, GenesList,
+            Haplotype::Primary, HashMapinfo, LocusHaplo, LocusInfos, Name, Position,
+            Positionstrand, Species, SpeciesError, Status, Strand,
         },
         submissions::{
             BORNESLINK, RELEASELINK, REQUESTCLIENT, checkifblastpresent, decompressseq,
@@ -45,11 +62,13 @@ mod tests {
     use num_format::{Locale, ToFormattedString};
     use tempfile::{NamedTempFile, TempDir};
     #[test]
+    /// Test: asserts that BLAST is installed and working.
     fn checkblast() {
         assert!(checkifblastpresent())
     }
     #[test]
     #[allow(non_snake_case)]
+    /// Test: asserts that the IMGT release and bornes download links are reachable.
     fn checkIMGTservers() {
         assert!(
             sendresult(&REQUESTCLIENT, &RELEASELINK, true).is_ok(),
@@ -60,7 +79,135 @@ mod tests {
             "Error with bornes link"
         );
     }
+    fn hit(sstart: usize, send: usize) -> Blastmatch {
+        Blastmatch::new(
+            Name::new(
+                None,
+                "TRAV14".to_string(),
+                "Homo sapiens".to_string(),
+                None,
+                Position::newfromzposition(sstart.try_into().unwrap()),
+                Position::newfromzposition(send.try_into().unwrap()),
+                Strand::Plus,
+            ),
+            "chr1".to_string(),
+            String::new(),
+            sstart,
+            send,
+            if sstart.le(&send) {
+                Strand::Plus
+            } else {
+                Strand::Minus
+            },
+            Status::Equal,
+            100.0,
+        )
+    }
+    fn block_of(coords: &[(usize, usize)]) -> BTreeSet<Blastmatch> {
+        coords.iter().map(|&(a, b)| hit(a, b)).collect()
+    }
+    /// Block spanning 1000..=21000 with three hits.
+    fn base_block() -> BTreeSet<Blastmatch> {
+        block_of(&[(1000, 2000), (5000, 6000), (20000, 21000)])
+    }
+    fn minmax(block: &BTreeSet<Blastmatch>) -> (Blastmatch, Blastmatch) {
+        (
+            block.first().unwrap().clone(),
+            block.last().unwrap().clone(),
+        )
+    }
+
     #[test]
+    fn apply_borne_all_cases() {
+        // Case 1: no borne -> caller never calls apply_borne, block untouched
+        let block = base_block();
+        assert_eq!(block.len(), 3, "no borne: block must keep its 3 hits");
+
+        // Case 2: borne inside the block -> trimmed at the borne, borne not inserted
+        let mut block = base_block();
+        let (min, max) = minmax(&block);
+        let borne = hit(15_000, 16_000); // inside 1000..=21000
+        apply_borne(&mut block, &borne, &min, &max);
+        assert_eq!(
+            block,
+            block_of(&[(1000, 2000), (5000, 6000)]),
+            "borne inside (15000-16000): hits with send >= 16000 must be trimmed"
+        );
+        assert!(
+            !block.contains(&borne),
+            "borne inside the block must NOT be inserted into the block"
+        );
+
+        // Case 3: borne inside near the start -> saturating_sub edge, whole block trimmed
+        let mut block = base_block();
+        let (min, max) = minmax(&block);
+        let borne = hit(1200, 1800);
+        apply_borne(&mut block, &borne, &min, &max);
+        assert!(
+            block.is_empty(),
+            "borne inside near start (1200-1800): send < 1800 keeps nothing, block is emptied"
+        );
+
+        // Case 4: borne outside after the end, within BORNES -> inserted, no trimming
+        let mut block = base_block();
+        let (min, max) = minmax(&block);
+        let borne = hit(25_000, 26_000); // 4_000 bp past max.send (<= BORNES)
+        apply_borne(&mut block, &borne, &min, &max);
+        assert_eq!(
+            block.len(),
+            4,
+            "borne 4kb past end: must be added to the 3 hits"
+        );
+        assert!(
+            block.contains(&borne),
+            "borne within BORNES after the block must be inserted"
+        );
+        assert!(
+            block.contains(&hit(1000, 2000)),
+            "borne outside the block must not trim the original hits"
+        );
+
+        // Case 5: borne outside before the start, within BORNES -> inserted
+        let mut block = base_block();
+        let (min, max) = minmax(&block);
+        let borne = hit(0, 500); // 1_000 bp before min.sstart (<= BORNES)
+        apply_borne(&mut block, &borne, &min, &max);
+        assert!(
+            block.contains(&borne),
+            "borne within BORNES before the block must be inserted"
+        );
+        assert_eq!(
+            block.len(),
+            4,
+            "borne 1kb before start: block must grow to 4 hits"
+        );
+
+        // Case 6: borne completely outside (> BORNES from both edges) -> nothing happens
+        let mut block = base_block();
+        let (min, max) = minmax(&block);
+        let borne = hit(50_000, 51_000);
+        apply_borne(&mut block, &borne, &min, &max);
+        assert_eq!(
+            block,
+            base_block(),
+            "borne > BORNES from both edges: block must be unchanged"
+        );
+        assert!(
+            !block.contains(&borne),
+            "borne completely outside must NOT be inserted"
+        );
+    }
+    #[test]
+    fn testposition() {
+        let onepos = Position::newfromoposition(1); //1 for 1-based is very first position
+        assert_eq!(onepos, Position::default()); //which is also default
+        let zeropos = Position::newfromzposition(0); //0 for 0-based is very first position
+        assert_eq!(onepos, zeropos);
+        let onepos = onepos.add(Position::newfromzposition(1));
+        assert_ne!(onepos, zeropos);
+    }
+    #[test]
+    /// Test: checks that global params (mean coverage, read length, PHRED) are computed correctly on the example BAM.
     fn checkparams() {
         let testo = TempDir::new().unwrap();
         let fake_args = vec![
@@ -90,6 +237,7 @@ mod tests {
         assert_eq!(params.getphred(), 78, "Phred score is not the same");
     }
     #[test]
+    /// Test: compares the generated locus FASTA against the expected example output.
     fn generatesequencetest() {
         let testo = TempDir::new().unwrap();
         let fake_args = vec![
@@ -157,6 +305,7 @@ mod tests {
         }
     }
     #[test]
+    /// Test: compares the extracted locus sequence against `samtools faidx` output.
     fn samtoolsseq() {
         checksamtools().unwrap();
         let testo = TempDir::new().unwrap();
@@ -245,6 +394,7 @@ mod tests {
         }
     }
     #[test]
+    /// Test: validates species lookup against NCBI (human, dog, lamprey, pongo).
     fn checkspecies() {
         sleep(Duration::new(3, 0)); //Sleep for NCBI
         let human = Species::new("Homo sapiens").unwrap();
@@ -288,6 +438,7 @@ mod tests {
     }
     #[cfg(feature = "pileup")]
     #[test]
+    /// Test: checks the generated pileup files against expected SHA-256 hashes (feature `pileup`).
     fn testpileup() {
         use crate::givename;
         use crate::pileup::commandlinepileup;
@@ -373,6 +524,7 @@ mod tests {
         let _ = testo.close();
     }
     #[test]
+    /// Test: checks parsing of a position-result CSV file.
     fn testlocusparsing() {
         let mut val = csv::ReaderBuilder::new()
             .comment(Some(b'#'))
@@ -390,6 +542,7 @@ mod tests {
         assert!(data.get(1022).unwrap().qual.is_none(), "Issue");
     }
     #[test]
+    /// Test: checks that the generated light BAM preserves record alignment positions.
     fn testbam() {
         let testo = TempDir::new().unwrap();
         let a = Filecrea::createtemp(None, Some("test.bam")).unwrap();
@@ -451,6 +604,7 @@ mod tests {
         }
     }
     #[test]
+    /// Test: compares automatically detected locus positions with known coordinates.
     fn findlocustest() {
         let testo = TempDir::new().unwrap();
         // Fake args as a Vec<&str>
@@ -555,6 +709,7 @@ TRG,Primary,NC_060931.1,38524763,38315134"
         }
     }
     #[test]
+    /// Test: checks per-position read statistics on the IGK locus against expected values.
     fn testlocusposition() {
         let testo = TempDir::new().unwrap();
         // Fake args as a Vec<&str>
@@ -667,6 +822,7 @@ TRG,Primary,NC_060931.1,38524763,38315134"
         );
     }
     #[test]
+    /// Test: checks that sequence generation, compression and decompression round-trip correctly.
     fn compressanddecompress() {
         let testo = TempDir::new().unwrap();
         let fake_args = vec![
@@ -714,6 +870,7 @@ TRG,Primary,NC_060931.1,38524763,38315134"
     }
     #[ignore]
     #[test]
+    /// Test (ignored by default): end-to-end check of locus positions, gene infos and validated-allele output.
     fn testlocuspositionandgenes() {
         let testo = TempDir::new().unwrap();
         let a = NamedTempFile::with_suffix("test4.bam").unwrap();

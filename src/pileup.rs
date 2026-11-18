@@ -1,8 +1,24 @@
-/*
-* IMGT/StatAssembly
-Available under EUPL license
-Made by: Guilhem Zeitoun and IMGT Team
-*/
+//! # IMGT/StatAssembly pileup
+//!
+//! This software analyzes BAM files to determine confidence levels on immunogenetic loci
+//! (specifically Immunoglobulin\[IG\] and T-cell receptor\[TR\] loci) as well as allele confidence.
+//!
+//! It was created and used by the IMGT Team (<https://www.imgt.org>).
+//!
+//! ## License
+//!
+//! Available under the EUPL license.
+//!
+//! ## Authors
+//!
+//! Made by Guilhem Zeitoun and the IMGT Team.
+//!
+//! ## Module
+//!
+//! Pileup generation (enabled with the `pileup` feature).
+//! Can either shell out to `samtools mpileup` or compute pileups in-process.
+//!
+
 use extended_htslib::bam::{
     self,
     pileup::{RustPileupConfig, RustPileups},
@@ -24,6 +40,7 @@ use crate::{
     r#struct::{Args, Filecrea, LocusInfos, Positionstrand, Species},
     submissions::getprogressbarclassic,
 };
+/// Checks that the `samtools` executable is present and runs successfully.
 pub(crate) fn checksamtools() -> io::Result<()> {
     println!("Checking samtools is present.");
     let pipe = Stdio::piped();
@@ -47,6 +64,7 @@ pub(crate) fn checksamtools() -> io::Result<()> {
         )),
     }
 }
+/// Generates one pileup file per locus in `<outdir>/pileups` by calling `samtools mpileup` in parallel.
 pub(crate) fn commandlinepileup(
     species: &Species,
     args: &Args,
@@ -151,7 +169,10 @@ pub(crate) fn commandlinepileup(
         })
         .collect()
 }
+
 #[allow(unused)]
+/// Generates one pileup file per locus in-process using the extended_htslib pileup engine.
+/// This engine is very slow and SHOULD NOT BE USED IN PRODUCTION.
 pub(crate) fn printpileup(species: &Species, args: &Args, locus: &[LocusInfos]) -> io::Result<()> {
     println!("Generating pileups...");
     let progressbar = getprogressbarclassic(locus.len().try_into().unwrap_or_default());

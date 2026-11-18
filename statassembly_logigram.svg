@@ -1,0 +1,224 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2471" height="1978" viewBox="0 0 2471 1978" font-family="monospace">
+<defs><marker id="arr" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#475569"/></marker><marker id="arrd" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#2563eb"/></marker></defs>
+<rect width="2471" height="1978" fill="#f8fafc"/>
+<text x="24" y="30" font-size="17" font-weight="bold" fill="#0f172a">IMGT/StatAssembly — logigram of main() and all called functions. Made by Mistral AI and validated by author.</text>
+<rect x="24" y="50" width="2423" height="210" rx="10" fill="#eef2ff" stroke="#cbd5e1"/>
+<text x="34" y="71" font-size="13.5" font-weight="bold" fill="#1e293b">0. ENTRY — main() start (unconditional)</text>
+<rect x="24" y="274" width="2423" height="210" rx="10" fill="#f0fdf4" stroke="#cbd5e1"/>
+<text x="34" y="295" font-size="13.5" font-weight="bold" fill="#1e293b">1. Command::Find branch (early exit)</text>
+<rect x="24" y="498" width="2423" height="546" rx="10" fill="#fffbeb" stroke="#cbd5e1"/>
+<text x="34" y="519" font-size="13.5" font-weight="bold" fill="#1e293b">2. PER-LOCUS LOOP (main flow)</text>
+<rect x="24" y="1058" width="2423" height="210" rx="10" fill="#fdf2f8" stroke="#cbd5e1"/>
+<text x="34" y="1079" font-size="13.5" font-weight="bold" fill="#1e293b">3. RESULT FILES &amp; OUTPUTS — main flow (after loop)</text>
+<rect x="24" y="1282" width="2423" height="658" rx="10" fill="#f0f9ff" stroke="#cbd5e1"/>
+<text x="34" y="1303" font-size="13.5" font-weight="bold" fill="#1e293b">4. IMGT SUBMISSION — full submit() chain (skipped with --nosubmit)</text>
+<line x1="60" y1="106" x2="60" y2="1914" stroke="#2563eb" stroke-width="1.6" stroke-dasharray="5,4"/>
+<path d="M60,218 L78,218" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,218 L337.6,218" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,218 L603.9000000000001,218" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,218 L976.1000000000001,218" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,218 L1316.1000000000001,218" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,218 L1629.3000000000002,218" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,218 L1867.2000000000003,218" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,218 L2173.7000000000003,218" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,330 L78,330" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,554 L78,554" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,1114 L78,1114" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,1114 L466.0,1114" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,1114 L1080.7,1114" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,1114 L1366.0,1114" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,1226 L78,1226" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,1226 L331.70000000000005,1226" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,1226 L964.6,1226" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,1450 L78,1450" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<path d="M60,1226 L1251.0,1226" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="5,4" marker-end="url(#arrd)" fill="none"/>
+<text x="54" y="98" font-size="10.5" fill="#2563eb" text-anchor="end">direct call from main()</text>
+<path d="M298,354 L298,442 L77,442" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M298,354 L298,442 L307.0,442" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M298,354 L298,442 L765.2,442" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M298,354 L298,442 L1011.0,442" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M514,442 L553.2,442" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M726,442 L765.2,442" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M363,554 L401.8,554" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M616,554 L654.7,554" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M223,578 L223,666 L77,666" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M519,666 L557.7,666" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M772,666 L811.4000000000001,666" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M919,690 L919,778 L77,778" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M919,690 L919,778 L289,778" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M919,690 L919,778 L501,778" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M250,890 L289,890" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M167,914 L167,1002 L830.2,1002" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M308,1002 L346.5,1002" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M545,1002 L584.4,1002" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M791,1002 L830.2,1002" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M255,1474 L255,1562 L77,1562" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M255,1474 L255,1562 L425.5,1562" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M255,1474 L255,1562 L766.1,1562" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M905,1586 L905,1674 L77,1674" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M371,1674 L409.7,1674" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M677,1674 L716.2,1674" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M957,1674 L995.9000000000001,1674" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M1282,1674 L1320.7,1674" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M1583,1674 L1621.8000000000002,1674" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M905,1586 L905,1562 L425.5,1562" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M905,1586 L905,1786 L77,1786" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M905,1586 L905,1786 L409.7,1786" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M592,1810 L592,1898 L77,1898" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<path d="M592,1810 L592,1898 L401.8,1898" stroke="#475569" stroke-width="1.5" marker-end="url(#arr)" fill="none"/>
+<rect x="84" y="82" width="307" height="48" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+<text x="238" y="101" font-size="12.5" text-anchor="middle" fill="#0f172a">main()  [main.rs:1197]</text>
+<text x="238" y="119" font-size="10.5" text-anchor="middle" fill="#475569">entry point: Args::parse(), Species::new()</text>
+<rect x="84" y="194" width="214" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="191" y="213" font-size="12.5" text-anchor="middle" fill="#0f172a">checknewversion()</text>
+<text x="191" y="231" font-size="10.5" text-anchor="middle" fill="#d97706">unless arg: --noversioncheck</text>
+<rect x="344" y="194" width="220" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="454" y="213" font-size="12.5" text-anchor="middle" fill="#0f172a">available_memory()</text>
+<text x="454" y="231" font-size="10.5" text-anchor="middle" fill="#475569">forces --lowmemory if &lt; 12 GB</text>
+<rect x="610" y="194" width="326" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="773" y="213" font-size="12.5" text-anchor="middle" fill="#0f172a">checkifblastpresent() [submissions.rs]</text>
+<text x="773" y="231" font-size="10.5" text-anchor="middle" fill="#475569">sets --nosubmit if no BLAST</text>
+<rect x="982" y="194" width="294" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="1129" y="213" font-size="12.5" text-anchor="middle" fill="#0f172a">checklocusandoutput()</text>
+<text x="1129" y="231" font-size="10.5" text-anchor="middle" fill="#475569">validates locus file / assembly / outdir</text>
+<rect x="1322" y="194" width="267" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="1456" y="213" font-size="12.5" text-anchor="middle" fill="#0f172a">locusposparser()</text>
+<text x="1456" y="231" font-size="10.5" text-anchor="middle" fill="#475569">reads locus file + BLAST vs assembly</text>
+<rect x="1635" y="194" width="192" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="1731" y="213" font-size="12.5" text-anchor="middle" fill="#0f172a">checkgenelistformat()</text>
+<text x="1731" y="231" font-size="10.5" text-anchor="middle" fill="#d97706">arg: --geneloc</text>
+<rect x="1873" y="194" width="260" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="2003" y="213" font-size="12.5" text-anchor="middle" fill="#0f172a">mergelocus()</text>
+<text x="2003" y="231" font-size="10.5" text-anchor="middle" fill="#475569">groups primary/alternate haplotypes</text>
+<rect x="2180" y="194" width="227" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="2293" y="213" font-size="12.5" text-anchor="middle" fill="#0f172a">getorsetparams()</text>
+<text x="2293" y="231" font-size="10.5" text-anchor="middle" fill="#15803d">reads/writes .mean params file</text>
+<rect x="84" y="306" width="429" height="48" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+<text x="298" y="325" font-size="12.5" text-anchor="middle" fill="#0f172a">findanalyse() [main.rs:1097] — Command::Find branch</text>
+<text x="298" y="343" font-size="10.5" text-anchor="middle" fill="#d97706">arg: `find` subcommand</text>
+<rect x="84" y="418" width="184" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="176" y="437" font-size="12.5" text-anchor="middle" fill="#0f172a">printnewloc (shared)</text>
+<text x="176" y="455" font-size="10.5" text-anchor="middle" fill="#64748b">see main-flow outputs</text>
+<rect x="314" y="418" width="200" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="414" y="437" font-size="12.5" text-anchor="middle" fill="#0f172a">generategenelist()</text>
+<text x="414" y="455" font-size="10.5" text-anchor="middle" fill="#475569">BLAST matches -&gt; gene list</text>
+<rect x="560" y="418" width="166" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="643" y="437" font-size="12.5" text-anchor="middle" fill="#0f172a">getgeneinfos()</text>
+<rect x="772" y="418" width="200" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="872" y="437" font-size="12.5" text-anchor="middle" fill="#0f172a">printgenelist (shared)</text>
+<text x="872" y="455" font-size="10.5" text-anchor="middle" fill="#64748b">see main-flow outputs</text>
+<rect x="1018" y="418" width="224" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="1130" y="437" font-size="12.5" text-anchor="middle" fill="#0f172a">generatelightbam (shared)</text>
+<text x="1130" y="455" font-size="10.5" text-anchor="middle" fill="#64748b">see main-flow outputs</text>
+<rect x="84" y="530" width="279" height="48" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+<text x="223" y="549" font-size="12.5" text-anchor="middle" fill="#0f172a">for each locus group x haplotype</text>
+<text x="223" y="567" font-size="10.5" text-anchor="middle" fill="#475569">loop in main flow</text>
+<rect x="409" y="530" width="207" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="512" y="549" font-size="12.5" text-anchor="middle" fill="#0f172a">getdrawingmaps()</text>
+<text x="512" y="567" font-size="10.5" text-anchor="middle" fill="#d97706">arg: --svg picks SVG vs PNG</text>
+<rect x="662" y="530" width="166" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="745" y="549" font-size="12.5" text-anchor="middle" fill="#0f172a">requestimage()</text>
+<rect x="84" y="642" width="435" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="301" y="661" font-size="12.5" text-anchor="middle" fill="#0f172a">posread() [main.rs:943]</text>
+<text x="301" y="679" font-size="10.5" text-anchor="middle" fill="#475569">identification.rs: threadlaunch, locusallposition, sendresult</text>
+<rect x="565" y="642" width="208" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="669" y="661" font-size="12.5" text-anchor="middle" fill="#0f172a">LocusInfos::setstatus()</text>
+<rect x="818" y="642" width="200" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="919" y="661" font-size="12.5" text-anchor="middle" fill="#0f172a">paintgraph()</text>
+<text x="919" y="679" font-size="10.5" text-anchor="middle" fill="#475569">draws read/mismatch graphs</text>
+<rect x="84" y="754" width="166" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="167" y="773" font-size="12.5" text-anchor="middle" fill="#0f172a">genegraph()</text>
+<rect x="296" y="754" width="166" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="379" y="773" font-size="12.5" text-anchor="middle" fill="#0f172a">mismatchgraph()</text>
+<rect x="508" y="754" width="166" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="591" y="773" font-size="12.5" text-anchor="middle" fill="#0f172a">createcsv()</text>
+<text x="591" y="791" font-size="10.5" text-anchor="middle" fill="#15803d">writes CSV per locus</text>
+<rect x="84" y="866" width="166" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="167" y="885" font-size="12.5" text-anchor="middle" fill="#0f172a">genelist()</text>
+<text x="167" y="903" font-size="10.5" text-anchor="middle" fill="#d97706">arg: --geneloc</text>
+<rect x="296" y="866" width="314" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="453" y="885" font-size="12.5" text-anchor="middle" fill="#0f172a">genesblast() [submissions.rs]</text>
+<text x="453" y="903" font-size="10.5" text-anchor="middle" fill="#475569">BLAST of gene list (needs assembly + BLAST)</text>
+<rect x="84" y="978" width="224" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="196" y="997" font-size="12.5" text-anchor="middle" fill="#0f172a">generategenelist (shared)</text>
+<text x="196" y="1015" font-size="10.5" text-anchor="middle" fill="#64748b">see Command::Find band</text>
+<rect x="354" y="978" width="192" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="449" y="997" font-size="12.5" text-anchor="middle" fill="#0f172a">getgeneinfos (shared)</text>
+<rect x="591" y="978" width="200" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="691" y="997" font-size="12.5" text-anchor="middle" fill="#0f172a">printgenelist (shared)</text>
+<text x="691" y="1015" font-size="10.5" text-anchor="middle" fill="#64748b">see main-flow outputs</text>
+<rect x="837" y="978" width="194" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="934" y="997" font-size="12.5" text-anchor="middle" fill="#0f172a">locushash()</text>
+<text x="934" y="1015" font-size="10.5" text-anchor="middle" fill="#475569">fills locushashresult map</text>
+<rect x="84" y="1090" width="342" height="48" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+<text x="255" y="1109" font-size="12.5" text-anchor="middle" fill="#0f172a">generatelightbam() [submissions.rs:1387]</text>
+<text x="255" y="1127" font-size="10.5" text-anchor="middle" fill="#15803d">arg: --outlightbam | writes light BAM + .csi</text>
+<rect x="472" y="1090" width="569" height="48" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+<text x="756" y="1109" font-size="12.5" text-anchor="middle" fill="#0f172a">commandlinepileup() [pileup.rs]</text>
+<text x="756" y="1127" font-size="10.5" text-anchor="middle" fill="#15803d">feature: pileup + arg: --pileup | writes pileup files (printpileup commented out)</text>
+<rect x="1087" y="1090" width="239" height="48" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+<text x="1206" y="1109" font-size="12.5" text-anchor="middle" fill="#0f172a">printnewloc() [main.rs:598]</text>
+<text x="1206" y="1127" font-size="10.5" text-anchor="middle" fill="#15803d">writes new locus file</text>
+<rect x="1372" y="1090" width="255" height="48" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+<text x="1500" y="1109" font-size="12.5" text-anchor="middle" fill="#0f172a">printgenelist() [main.rs:569]</text>
+<text x="1500" y="1127" font-size="10.5" text-anchor="middle" fill="#15803d">writes gene list file</text>
+<rect x="84" y="1202" width="208" height="48" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+<text x="188" y="1221" font-size="12.5" text-anchor="middle" fill="#0f172a">printvalidatedalleles()</text>
+<text x="188" y="1239" font-size="10.5" text-anchor="middle" fill="#15803d">writes validated alleles</text>
+<rect x="338" y="1202" width="587" height="48" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+<text x="631" y="1221" font-size="12.5" text-anchor="middle" fill="#0f172a">generatesequence() / generatesplitsequence() [submissions.rs:1347/1320]</text>
+<text x="631" y="1239" font-size="10.5" text-anchor="middle" fill="#15803d">arg: --assembly (--splitfasta picks split) | writes FASTA.gz</text>
+<rect x="971" y="1202" width="240" height="48" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+<text x="1091" y="1221" font-size="12.5" text-anchor="middle" fill="#0f172a">generatepdf() [pdf.rs]</text>
+<text x="1091" y="1239" font-size="10.5" text-anchor="middle" fill="#15803d">feature: pdf | writes PDF report</text>
+<rect x="1257" y="1202" width="166" height="48" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+<text x="1340" y="1221" font-size="12.5" text-anchor="middle" fill="#0f172a">endmessage()</text>
+<text x="1340" y="1239" font-size="10.5" text-anchor="middle" fill="#475569">prints runtime</text>
+<rect x="84" y="1314" width="263" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="216" y="1333" font-size="12.5" text-anchor="middle" fill="#0f172a">filternewandvalidatedalleles()</text>
+<text x="216" y="1351" font-size="10.5" text-anchor="middle" fill="#d97706">unless arg: --nosubmit</text>
+<rect x="84" y="1426" width="342" height="48" rx="7" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+<text x="255" y="1445" font-size="12.5" text-anchor="middle" fill="#0f172a">askforsubmission() [submissions.rs:1192]</text>
+<text x="255" y="1463" font-size="10.5" text-anchor="middle" fill="#d97706">arg: --nosubmit skips | pings IMGT server</text>
+<rect x="84" y="1538" width="302" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="235" y="1557" font-size="12.5" text-anchor="middle" fill="#0f172a">readfromterminal() [submissions.rs]</text>
+<text x="235" y="1575" font-size="10.5" text-anchor="middle" fill="#475569">y/n prompt</text>
+<rect x="432" y="1538" width="295" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="580" y="1557" font-size="12.5" text-anchor="middle" fill="#0f172a">asknonewalleles() [submissions.rs]</text>
+<rect x="773" y="1538" width="263" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="905" y="1557" font-size="12.5" text-anchor="middle" fill="#0f172a">submit() [submissions.rs:1056]</text>
+<text x="905" y="1575" font-size="10.5" text-anchor="middle" fill="#475569">builds submission temp dir</text>
+<rect x="84" y="1650" width="287" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="227" y="1669" font-size="12.5" text-anchor="middle" fill="#0f172a">getassemblyreader() [main.rs:188]</text>
+<text x="227" y="1687" font-size="10.5" text-anchor="middle" fill="#d97706">arg: --assembly required</text>
+<rect x="417" y="1650" width="260" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="547" y="1669" font-size="12.5" text-anchor="middle" fill="#0f172a">generatelightbam (shared)</text>
+<text x="547" y="1687" font-size="10.5" text-anchor="middle" fill="#15803d">main-flow too | writes outlight.bam</text>
+<rect x="723" y="1650" width="234" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="840" y="1669" font-size="12.5" text-anchor="middle" fill="#0f172a">generatesequence (shared)</text>
+<text x="840" y="1687" font-size="10.5" text-anchor="middle" fill="#15803d">main-flow too | writes FASTA.gz</text>
+<rect x="1003" y="1650" width="279" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="1142" y="1669" font-size="12.5" text-anchor="middle" fill="#0f172a">decompressseq() [submissions.rs]</text>
+<rect x="1328" y="1650" width="255" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="1455" y="1669" font-size="12.5" text-anchor="middle" fill="#0f172a">matchmotif() [submissions.rs]</text>
+<text x="1455" y="1687" font-size="10.5" text-anchor="middle" fill="#475569">checks motifs (downloadmotifs)</text>
+<rect x="1629" y="1650" width="408" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="1833" y="1669" font-size="12.5" text-anchor="middle" fill="#0f172a">filter_new_alleles() [submissions.rs]</text>
+<text x="1833" y="1687" font-size="10.5" text-anchor="middle" fill="#15803d">writes motifs.txt, motifs2.txt, newpotentialalleles.fasta</text>
+<rect x="84" y="1762" width="287" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="227" y="1781" font-size="12.5" text-anchor="middle" fill="#0f172a">browseropening() [submissions.rs]</text>
+<text x="227" y="1799" font-size="10.5" text-anchor="middle" fill="#d97706">opens browser unless arg: --mytoken</text>
+<rect x="417" y="1762" width="350" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="592" y="1781" font-size="12.5" text-anchor="middle" fill="#0f172a">preparesubmission() [submissions.rs:1531]</text>
+<rect x="84" y="1874" width="279" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="223" y="1893" font-size="12.5" text-anchor="middle" fill="#0f172a">createarchive() [submissions.rs]</text>
+<text x="223" y="1911" font-size="10.5" text-anchor="middle" fill="#15803d">writes submission archive (tar.gz)</text>
+<rect x="409" y="1874" width="295" height="48" rx="7" fill="white" stroke="#94a3b8" stroke-width="1.3"/>
+<text x="556" y="1893" font-size="12.5" text-anchor="middle" fill="#0f172a">submission() [submissions.rs:1623]</text>
+<text x="556" y="1911" font-size="10.5" text-anchor="middle" fill="#475569">HTTPS POST to IMGT with token</text>
+<rect x="24" y="1930" width="2423" height="26" rx="6" fill="white" stroke="#cbd5e1"/>
+<text x="36" y="1948" font-size="11.5" fill="#d97706">■ arg: called only when the CLI argument is provided</text>
+<text x="454" y="1948" font-size="11.5" fill="#7c3aed">■ feature: compile-time cargo feature</text>
+<text x="784" y="1948" font-size="11.5" fill="#15803d">■ writes: function creates a file</text>
+<text x="1074" y="1948" font-size="11.5" fill="#2563eb">┄ blue dashed = direct call from main()</text>
+</svg>
