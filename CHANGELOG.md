@@ -1,3 +1,7 @@
+## v2.1.2 - 2026-11-19
+
+- Correction of some files clippy warnings.
+
 ## v2.1.0 - 2026-09-21
 
 ## Updates
