@@ -1,8 +1,8 @@
-## v2.1.2 - 2026-11-19
+## v[2.1.2] - 2026-11-19
 
 - Correction of some files clippy warnings.
 
-## v2.1.0 - 2026-09-21
+## v[2.1.0] - 2026-09-21
 
 ## Updates
 
@@ -16,7 +16,7 @@
 - Correction of alleles blast
 
 
-## v2.0.2 - 2026-09-15
+## v[2.0.2] - 2026-09-15
 
 ### Fixed
 
@@ -24,7 +24,7 @@
 - Fix bornes and locus delimitation
 - Both haplotype of a same locus cannot be on the same chromosome anymore
 
-## v2.0.1 - 2026-08-20
+## v[2.0.1] - 2026-08-20
 
 ### Fixed
 
@@ -35,7 +35,7 @@
 
 - Alter output CS file setting CS tag.
 
-## v2.0.0 - 2026-08-19
+## v[2.0.0] - 2026-08-19
 
 IMGT/StatAssembly v2.0.0 is a major version update bringing new functionalities.
 
