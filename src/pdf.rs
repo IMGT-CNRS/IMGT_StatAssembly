@@ -19,44 +19,39 @@
 //! Builds a two-page PDF listing the analyzed loci and the validated alleles.
 //!
 
+use std::collections::BTreeMap;
 use std::io;
 use std::io::ErrorKind::InvalidInput;
-use std::io::Write;
 use std::path::Path;
-use std::{collections::HashMap, fs::File};
 
-use itertools::Itertools;
 use num_format::{Locale, ToFormattedString};
-use oxidize_pdf::document::DocumentEncryption;
 
-use oxidize_pdf::encryption::{OwnerPassword, UserPassword};
-use oxidize_pdf::{Color, Document, Font, Image, Page, PageTables, TableOptions, encryption};
-use serde::Serialize;
+use oxidize_pdf::{Color, Document, Font, Image, Page, PageTables, TableOptions};
 
-use crate::r#struct::{Blastmatch, Filecrea, GeneInfos, Genehit, LocusInfos};
-use crate::{AUTHOR, NAME, VERSION, getgeneinfos};
+use crate::r#struct::{Filecrea, GeneInfos, Genehit, GenesList, LocusInfos, Positionstrand};
+use crate::{AUTHOR, NAME, VERSION};
 
 /// Generates the PDF summary report (loci table + validated alleles table) in the output directory.
 pub(crate) fn generatepdf(
     infos: &[LocusInfos],
-    hash: &HashMap<LocusInfos, Vec<Genehit>>,
+    hash: &BTreeMap<LocusInfos, Vec<Genehit>>,
     outdir: &Path,
 ) -> io::Result<Filecrea> {
     let locusdata: Vec<Vec<String>> = infos
-        .into_iter()
+        .iter()
         .map(|a| {
-            let mut b = Vec::new();
-            b.push(a.locusinfo.to_string());
-            b.push(a.getcontig().to_string());
-            b.push(
+            vec![
+                a.locusinfo.to_string(),
+                a.getcontig().to_string(),
                 a.getpositionstart()
                     .getobasedpos()
                     .to_formatted_string(&Locale::en),
-            );
-            b.push(a.end.getobasedpos().to_formatted_string(&Locale::en));
-            b.push(a.strand.to_string());
-            b.push(a.status.to_string());
-            b
+                a.getpositionend()
+                    .getobasedpos()
+                    .to_formatted_string(&Locale::en),
+                a.getstrand().to_string(),
+                a.getstatus().to_string(),
+            ]
         })
         .collect();
     let hashdata: Vec<GeneInfos> = hash
@@ -66,18 +61,18 @@ pub(crate) fn generatepdf(
     let elem: Vec<Vec<String>> = hashdata
         .into_iter()
         .map(|a| {
-            let mut b = Vec::new();
-            b.push(a.gene.to_string());
-            b.push(a.chromosome.to_string());
-            b.push(
+            vec![
+                a.getgene().to_string(),
+                a.getchromosome().to_string(),
                 a.getpositionstart()
                     .getobasedpos()
                     .to_formatted_string(&Locale::en),
-            );
-            b.push(a.end.getobasedpos().to_formatted_string(&Locale::en));
-            b.push(a.strand.to_string());
-            b.push(a.status.to_string());
-            b
+                a.getpositionend()
+                    .getobasedpos()
+                    .to_formatted_string(&Locale::en),
+                a.getstrand().to_string(),
+                a.getstatus().to_string(),
+            ]
         })
         .collect();
     // Create a new document
@@ -148,7 +143,7 @@ pub(crate) fn generatepdf(
         strength: oxidize_pdf::document::EncryptionStrength::Aes256,
     }); */
 
-    let file = Filecrea::createfrompath(Path::join(&outdir, "summary.pdf"));
+    let file = Filecrea::createfrompath(Path::join(outdir, "summary.pdf"));
     doc.save(file.getpath())
         .map_err(|d| io::Error::new(InvalidInput, d))?;
     Ok(file)

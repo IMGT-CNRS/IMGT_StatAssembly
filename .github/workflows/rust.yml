@@ -1,6 +1,4 @@
 name: Release
-env:
-  RUSTFLAGS: "-Dwarnings --cfg reqwest_unstable"
 on:
   workflow_dispatch:
     inputs:
@@ -30,6 +28,7 @@ jobs:
           token: ${{ secrets.TOKEN }}
           generate_notes: true
           overwrite: true
+          changelog: CHANGELOG.md
 
   upload-assets:
     needs: create-release
@@ -41,8 +40,10 @@ jobs:
             os: ubuntu-latest
           - target: x86_64-apple-darwin
             os: macos-latest
+            build-tool: cargo-zigbuild
           - target: x86_64-pc-windows-msvc
             os: windows-latest
+            build-tool: cargo-zigbuild
     runs-on: ${{ matrix.os }}
     steps:
         - uses: actions/checkout@v4
