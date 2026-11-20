@@ -1,0 +1,35 @@
+
+name: Push master to external repository
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to external repository
+        env:
+          EXTERNAL_REPO_URL: ${{ secrets.EXTERNAL_REPO_URL }}
+          EXTERNAL_REPO_TOKEN: ${{ secrets.EXTERNAL_REPO_TOKEN }}
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          AUTH_URL=$(echo "$EXTERNAL_REPO_URL" | sed "s|https://|https://${EXTERNAL_REPO_TOKEN}@|")
+
+          git remote add external "$AUTH_URL"
+
+          git push external HEAD:master
+          git push external HEAD:master --tags

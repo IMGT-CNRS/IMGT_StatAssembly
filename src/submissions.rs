@@ -22,7 +22,7 @@
 
 #![deny(clippy::unwrap_used)]
 #![deny(clippy::expect_used)]
-use crate::identification::{downloadmotifs, downloadref, retainbestmatch};
+use crate::identification::{downloadmotifs, downloadref, fileforce, retainbestmatch};
 use crate::r#struct::{
     Args, Blast, Blastcalc, Blastlevel, Blastmatch, Filecrea, GeneInfos, Genehit, GenesList, Locus,
     LocusInfos, Name, Newfasta, Position, Positionstrand, ProgressReader, Seqresult, Species,
@@ -349,18 +349,8 @@ pub(crate) fn speciesandorphonfiltering(
     orphonfilter: bool,
     force: bool,
 ) -> io::Result<Filecrea> {
-    let outfile = if force {
-        Filecrea::createtemp(
-            None,
-            Some(format!(
-                "refseq{}-{}{}.fasta",
-                releaseversion.replace(" ", "_"),
-                species.getname().replace(" ", "-"),
-                locus.map_or("".to_string(), |l| format!("-{}", l))
-            )),
-        )?
-    } else {
-        Filecrea::createfrompath(Path::join(
+    let outfile = fileforce(
+        Path::join(
             &env::temp_dir(),
             format!(
                 "refseq{}-{}{}.fasta",
@@ -368,9 +358,10 @@ pub(crate) fn speciesandorphonfiltering(
                 species.getname().replace(" ", "-"),
                 locus.map_or("".to_string(), |l| format!("-{}", l))
             ),
-        ))
-    };
-    if !outfile.istemp() && outfile.getpath().try_exists().unwrap_or(false) && !force {
+        ),
+        force,
+    )?;
+    if !outfile.istemp() && outfile.getpath().try_exists().unwrap_or(false) {
         println!("Filtering already done, retrieving...");
         return Ok(outfile);
     }
@@ -823,7 +814,7 @@ where
     let reference = &format!("{}", refpath.display());
     let subject = &format!("{}", subpath.display());
     let output = Filecrea::createtemp(None::<&Path>, None::<&Path>)?;
-    let output = &format!("{}", output.getpath().display());
+    let outputpath = &format!("{}", output.getpath().display());
     let mut command = Command::new("blastn")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -836,7 +827,7 @@ where
             "-perc_identity",
             "75",
             "-out",
-            output,
+            outputpath,
             "-word_size",
             blastlevel.as_word_size().to_string().as_str(),
             "-max_target_seqs",
@@ -849,7 +840,7 @@ where
         .spawn()?;
     println!("Launching {} against {}", reference, subject);
     println!(
-        "BLAST has been launched with id {}. Please wait.",
+        "External BLAST has been launched with id {}. Please wait.",
         command.id()
     );
     let threadoutput = thread::spawn(move || {
@@ -892,7 +883,7 @@ where
             }
             Ok(Some(_)) => {
                 println!("BLAST has been done. Parsing.");
-                let file = File::open(output)?;
+                let file = output.getfile()?;
                 let reader = BufReader::new(file);
                 let mut csv = csv::ReaderBuilder::new()
                     .delimiter(b'\t')
@@ -916,6 +907,7 @@ where
             }
         };
     };
+    drop(output);
     Ok(result)
 }
 /// Returns rank, name and id

@@ -1,9 +1,16 @@
-on: push
+on:
+  push:
+    branches-ignore:
+      - master
 name: Clippy check
 
 # Make sure CI fails on all warnings, including Clippy lints
 env:
   RUSTFLAGS: "-Dwarnings --cfg reqwest_unstable"
+
+permissions:
+  contents: read
+
 
 jobs:
   clippy_check:
@@ -21,4 +28,8 @@ jobs:
               libconfig++-dev \
               libconfig-dev
       - name: Run Clippy
-        run: cargo clippy --all-targets --all-features
+        run: |
+            git lfs pull
+            cargo clippy --all-targets --all-features
+            cargo test --all-targets tests::testlocusposition
+            cargo test --all-targets tests::testlocuspositionandgenes -- --ignored

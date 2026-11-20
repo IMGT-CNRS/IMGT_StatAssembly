@@ -2221,6 +2221,7 @@ fn genelist(
         let (elem, hash) = generategeneinfos(args, &mut gene)?;
         if elem.isdefault() {
             progressbar.set_position(pos.saturating_add(1).try_into().unwrap_or_default());
+            finale.push(elem);
             //We have 0 reads so no need to print any graph
             continue;
         }
