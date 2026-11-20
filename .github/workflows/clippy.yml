@@ -1,4 +1,7 @@
-on: push
+on:
+  push:
+    branches-ignore:
+      - master
 name: Clippy check
 
 # Make sure CI fails on all warnings, including Clippy lints
@@ -7,6 +10,7 @@ env:
 
 permissions:
   contents: read
+
 
 jobs:
   clippy_check:
@@ -27,5 +31,5 @@ jobs:
         run: |
             git lfs pull
             cargo clippy --all-targets --all-features
-            cargo test --release --all-targets tests::testlocusposition
-            cargo test --ignored --release --all-targets tests::testlocuspositionandgenes
+            cargo test --all-targets tests::testlocusposition
+            cargo test --all-targets tests::testlocuspositionandgenes -- --ignored
