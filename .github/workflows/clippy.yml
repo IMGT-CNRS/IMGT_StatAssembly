@@ -21,4 +21,4 @@ jobs:
               libconfig++-dev \
               libconfig-dev
       - name: Run Clippy
-        run: cargo clippy --all-targets --all-features && cargo test --all-targets --all-features
+        run: git lfs pull && cargo clippy --all-targets --all-features && cargo test --release --all-targets --all-features
