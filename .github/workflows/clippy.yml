@@ -5,6 +5,9 @@ name: Clippy check
 env:
   RUSTFLAGS: "-Dwarnings --cfg reqwest_unstable"
 
+permissions:
+  contents: read
+
 jobs:
   clippy_check:
     runs-on: ubuntu-latest
