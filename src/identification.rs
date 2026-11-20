@@ -77,11 +77,8 @@ where
         });
         let (sender, receiver) = channel();
         let sender = Arc::new(sender);
-        let _ = match bornespath.as_ref() {
-            Some(b) => {
-                let _ = File::open(b.getpath())?;
-            }
-            None => (),
+        if let Some(b) = bornespath.as_ref() {
+            let _ = File::open(b.getpath())?;
         };
         let bornes = bornespath.as_ref().map(|b| {
             s.spawn(move || {
@@ -408,7 +405,7 @@ pub(crate) fn downloadmotifs(args: &Args) -> Option<Filecrea> {
             return None;
         }
     };
-    if file.istemp() || !fileincache(&file.getpath()) {
+    if file.istemp() || !fileincache(file.getpath()) {
         println!("Downloading IMGT motifs, please wait...");
         match sendresultcompressed(&REQUESTCLIENT, MOTIFLINK.as_str(), false) {
             Ok(e) => {
