@@ -77,6 +77,12 @@ where
         });
         let (sender, receiver) = channel();
         let sender = Arc::new(sender);
+        let _ = match bornespath.as_ref() {
+            Some(b) => {
+                let _ = File::open(b.getpath())?;
+            }
+            None => (),
+        };
         let bornes = bornespath.as_ref().map(|b| {
             s.spawn(move || {
                 match receiver.recv_timeout(Duration::from_mins(TIMEOUT_IN_MN)) {
@@ -159,6 +165,7 @@ where
                 }
                 println!("Bornes finished.");
                 if aligns.is_empty() {
+                    eprintln!("No bornes alignment found.");
                     None
                 } else {
                     Some(aligns)
@@ -356,20 +363,24 @@ pub(crate) fn retainbestmatch(blast: &mut Vec<Blast>) {
 /// Downloads the IMGT bornes FASTA (gzipped) into the temp dir, using a 7-day cache unless bypassed.
 pub(crate) fn downloadbornes(args: &Args) -> Option<Filecrea> {
     println!("Downloading bornes sequence from IMGT");
-    let tempfile = Path::join(&env::temp_dir(), "bornes.fasta");
-    if args.cachebypass || !fileincache(&tempfile) {
+    let tempfile = match fileforce(
+        Path::join(&env::temp_dir(), "bornes.fasta"),
+        args.cachebypass,
+    ) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("Cannot make borne file: {e}");
+            return None;
+        }
+    };
+    if tempfile.istemp() || !tempfile.getpath().is_file() {
         println!("Downloading IMGT bornes, please wait...");
-        let rawtmp = if args.cachebypass {
-            Filecrea::createtemp(None, Some("bornes.txt")).ok()?
-        } else {
-            Filecrea::createfrompath(tempfile)
-        };
-        let rawfile = rawtmp.setfile();
+        let rawfile = tempfile.setfile();
         match sendresultcompressed(&REQUESTCLIENT, BORNESLINK.as_str(), false) {
             Ok(e) => match rawfile.map(|mut f| f.write_all(e.as_bytes())) {
                 Ok(Ok(_)) => {
                     println!("Success.");
-                    Some(rawtmp)
+                    Some(tempfile)
                 }
                 _ => {
                     eprintln!("Cannot write bornes in sequence.");
@@ -383,15 +394,21 @@ pub(crate) fn downloadbornes(args: &Args) -> Option<Filecrea> {
         }
     } else {
         println!("IMGT bornes were already downloaded, retrieving...");
-        Some(Filecrea::createfrompath(tempfile))
+        Some(tempfile)
     }
 }
 /// Downloads the IMGT motifs FASTA (gzipped) into the temp dir, using a 7-day cache unless bypassed.
 pub(crate) fn downloadmotifs(args: &Args) -> Option<Filecrea> {
     println!("Downloading motifs sequence from IMGT");
     let tempfile = Path::join(&env::temp_dir(), "motifs.fasta");
-    let file = Filecrea::createfrompath(&tempfile);
-    if args.cachebypass || !fileincache(&tempfile) {
+    let file = match fileforce(&tempfile, args.cachebypass) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("Cannot make reference file: {e}");
+            return None;
+        }
+    };
+    if file.istemp() || !fileincache(&file.getpath()) {
         println!("Downloading IMGT motifs, please wait...");
         match sendresultcompressed(&REQUESTCLIENT, MOTIFLINK.as_str(), false) {
             Ok(e) => {
@@ -773,6 +790,14 @@ pub(crate) fn sendresultcompressed(
         Err(e) => Err(format!("Error getting URL: {e}").to_string()),
     }
 }
+/// Create Filecrea temp if force else use permanent position
+pub(crate) fn fileforce<T: AsRef<Path>>(path: T, force: bool) -> io::Result<Filecrea> {
+    if force {
+        Filecrea::createtemp(None::<PathBuf>, None)
+    } else {
+        Ok(Filecrea::createfrompath(path.as_ref()))
+    }
+}
 /// Downloads the IMGT/GENE-DB reference FASTA for the requested (or latest) release, using a cache unless bypassed.
 pub(crate) fn downloadref(
     allowdownload: bool,
@@ -798,11 +823,17 @@ pub(crate) fn downloadref(
         ));
     };
     println!("Release version is {}", releaseversion);
-    let tempfile = Filecrea::createfrompath(Path::join(
-        &env::temp_dir(),
-        format!("refseq{}.fasta", releaseversion),
-    ));
-    if !tempfile.getpath().is_file() || force {
+    let tempfile = match fileforce(
+        Path::join(&env::temp_dir(), format!("refseq{}.fasta", releaseversion)),
+        force,
+    ) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("Cannot make reference file: {e}");
+            return None;
+        }
+    };
+    if !tempfile.getpath().is_file() || tempfile.istemp() {
         println!(
             "Downloading IMGT/GENE-DB release {}, please wait...",
             releaseversion

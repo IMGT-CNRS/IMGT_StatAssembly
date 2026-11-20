@@ -440,6 +440,8 @@ mod tests {
     #[test]
     /// Test: checks the generated pileup files against expected SHA-256 hashes (feature `pileup`).
     fn testpileup() {
+        use std::cmp::max;
+
         use crate::givename;
         use crate::pileup::commandlinepileup;
         let testo = TempDir::new().unwrap();
@@ -475,8 +477,13 @@ mod tests {
             "9cf027e0d092d1e1167606d03a481e7c5a6209eb0caabfa80b7e5ee308cdcdd9",
             "Homo_sapiens_TRB_NC_060931.1-primary_pileup.txt",
         ];
-        assert_eq!(locus.len(), hash.len().saturating_div(2), "Lack of locus");
+        assert_eq!(
+            locus.len(),
+            max(hash.len().saturating_div(2), 1),
+            "Lack of locus"
+        );
         for loc in locus {
+            let infos = posread(&args4, &loc).unwrap();
             let name = givename(
                 &human,
                 loc.getlocus(),
@@ -500,14 +507,44 @@ mod tests {
             ))
             .getfile()
             .unwrap();
+            {
+                let mut pileup = csv::ReaderBuilder::new()
+                    .delimiter(b'\t')
+                    .has_headers(false)
+                    .comment(Some(b'#'))
+                    .from_reader(&file);
+                let mut pileup = pileup.records().take(100).filter_map(Result::ok);
+                for _ in 0..100 {
+                    let first = pileup.next().expect("Count invalid");
+                    let mut elems = first.into_iter();
+                    let (contig, pos, _, num) = (
+                        elems.next().unwrap(),
+                        elems.next().unwrap().parse::<i64>().unwrap(),
+                        elems.next().unwrap(),
+                        elems.next().unwrap().parse::<usize>().unwrap(),
+                    );
+                    let (_, hit) = infos
+                        .iter()
+                        .find(|(_, val)| {
+                            val.position.getobasedpos() == pos
+                                && loc.getcontig().eq_ignore_ascii_case(contig)
+                        })
+                        .unwrap();
+                    assert_eq!(num, hit.gettotalmap(), "Not mapping score");
+                }
+                file.rewind().unwrap();
+            }
             let mut val = Vec::new();
             file.read_to_end(&mut val).unwrap();
             let mut digest = [0u8; 32];
             #[allow(unsafe_code)]
             unsafe {
+                use std::ptr;
+
                 use openssl_sys::SHA256;
 
-                let _ = SHA256(val.as_ptr(), val.len(), digest.as_mut_ptr());
+                let r = SHA256(val.as_ptr(), val.len(), digest.as_mut_ptr());
+                assert_ne!(r, ptr::null_mut(), "SHA256 could not be computed");
             }
             assert_eq!(
                 digest.iter().fold(
@@ -615,6 +652,7 @@ mod tests {
             "-a",
             "example_files/assembly.fasta",
             "--totalread",
+            "--lowmemory",
             "--haploid",
             "-s",
             "human",

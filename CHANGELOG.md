@@ -1,3 +1,8 @@
+## v[2.1.3] - 2026-11-20
+
+- Fix temp cachebypass
+- Fix gene showing if default
+
 ## v[2.1.2] - 2026-11-19
 
 - Correction of some files clippy warnings.
