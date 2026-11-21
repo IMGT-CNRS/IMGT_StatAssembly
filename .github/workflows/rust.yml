@@ -62,13 +62,21 @@ jobs:
           if: runner.os == 'Windows'
           shell: powershell
           run: |
-              choco install openssl.light
-              echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >> $env:GITHUB_ENV
-              echo "OPENSSL_LIB_DIR=C:\Program Files\OpenSSL-Win64\lib" >> $env:GITHUB_ENV
-              echo "OPENSSL_INCLUDE_DIR=C:\Program Files\OpenSSL-Win64\include" >> $env:GITHUB_ENV
-              echo "OPENSSL_NO_VENDOR=1" >> $env:GITHUB_ENV
-              echo "RUSTFLAGS=-Ctarget-feature=+crt-static" >> $env:GITHUB_ENV
-              echo "C:\Program Files\OpenSSL-Win64\bin" >> $env:GITHUB_PATH
+            choco install openssl.light -y
+
+                $openssl = "$env:ProgramFiles\OpenSSL"
+
+                if (!(Test-Path "$openssl\include\openssl\ssl.h")) {
+                    throw "OpenSSL headers not found at $openssl"
+                }
+
+                echo "OPENSSL_DIR=$openssl" >> $env:GITHUB_ENV
+                echo "OPENSSL_LIB_DIR=$openssl\lib" >> $env:GITHUB_ENV
+                echo "OPENSSL_INCLUDE_DIR=$openssl\include" >> $env:GITHUB_ENV
+                echo "$openssl\bin" >> $env:GITHUB_PATH
+
+                Write-Host "OpenSSL installation verified:"
+                Get-ChildItem "$openssl\include\openssl" | Select-Object -First 5
         - name: Setup OpenSSL
           if: runner.os == 'macOS'
           run: |
