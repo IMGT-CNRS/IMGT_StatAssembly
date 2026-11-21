@@ -24,7 +24,16 @@ jobs:
           EXTERNAL_REPO_URL: ${{ secrets.EXTERNAL_REPO_URL }}
           EXTERNAL_REPO_TOKEN: ${{ secrets.EXTERNAL_REPO_TOKEN }}
         run: |
-          set -e
+          echo "Testing HTTPS connection..."
+
+          curl -sS -v \
+            --connect-timeout 15 \
+            -o /dev/null \
+            "$EXTERNAL_REPO_URL" 2>&1 | tail -30
+
+          echo "Testing GitLab repository access..."
+
+          git ls-remote "$EXTERNAL_REPO_URL" HEAD
           git config user.name "GitHub Actions"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
