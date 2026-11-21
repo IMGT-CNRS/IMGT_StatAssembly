@@ -24,6 +24,7 @@ jobs:
           EXTERNAL_REPO_URL: ${{ secrets.EXTERNAL_REPO_URL }}
           EXTERNAL_REPO_TOKEN: ${{ secrets.EXTERNAL_REPO_TOKEN }}
         run: |
+          set -e
           git config user.name "GitHub Actions"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
