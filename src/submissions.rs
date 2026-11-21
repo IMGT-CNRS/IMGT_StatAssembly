@@ -67,31 +67,39 @@ use std::{
 };
 use strum::IntoEnumIterator;
 use tempfile::TempDir;
+#[cfg(target_os = "linux")]
 lazy_static! {
-    pub static ref REQUESTCLIENT: reqwest::blocking::Client = if cfg!(target_os = "linux") {
-        #[allow(clippy::unwrap_used)]
-        reqwest::blocking::Client::builder()
-            .connect_timeout(Duration::new(15, 0))
-            .timeout(Duration::new(600, 0))
-            .user_agent(format!("IMGT/StatAssembly version {}", VERSION))
-            .referer(false)
-            .tls_version_min(tls::Version::TLS_1_2)
-            .https_only(true)
-            .http3_max_idle_timeout(Duration::new(10,0))
-            .http3_prior_knowledge()
-            .tcp_user_timeout(Duration::new(400, 0)).build().unwrap()
-    } else {
-        #[allow(clippy::unwrap_used)]
-        reqwest::blocking::Client::builder()
-            .connect_timeout(Duration::new(15, 0))
-            .timeout(Duration::new(600, 0))
-            .user_agent(format!("IMGT/StatAssembly version {}", VERSION))
-            .referer(false)
-            .tls_version_min(tls::Version::TLS_1_2)
-            .https_only(true)
-            .http3_max_idle_timeout(Duration::new(10,0))
-            .http3_prior_knowledge().build().unwrap()
-    };
+    pub static ref REQUESTCLIENT: reqwest::blocking::Client = #[allow(clippy::unwrap_used)]
+    reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::new(15, 0))
+        .timeout(Duration::new(600, 0))
+        .user_agent(format!("IMGT/StatAssembly version {}", VERSION))
+        .referer(false)
+        .tls_version_min(tls::Version::TLS_1_2)
+        .https_only(true)
+        .http3_max_idle_timeout(Duration::new(10, 0))
+        .http3_prior_knowledge()
+        .tcp_user_timeout(Duration::new(400, 0))
+        .build()
+        .unwrap();
+}
+#[cfg(not(target_os = "linux"))]
+lazy_static! {
+    pub static ref REQUESTCLIENT: reqwest::blocking::Client = #[allow(clippy::unwrap_used)]
+    reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::new(15, 0))
+        .timeout(Duration::new(600, 0))
+        .user_agent(format!("IMGT/StatAssembly version {}", VERSION))
+        .referer(false)
+        .tls_version_min(tls::Version::TLS_1_2)
+        .https_only(true)
+        .http3_max_idle_timeout(Duration::new(10, 0))
+        .http3_prior_knowledge()
+        .build()
+        .unwrap();
+}
+
+lazy_static! {
     pub static ref WEBSERVER: String = "https://imgt.org".to_string();
     pub static ref RELEASELINK: String = format!(
         "{}{}",
