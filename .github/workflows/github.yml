@@ -19,7 +19,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Push to external repository
+      - name: Push to self-hosted GitLab
         env:
           EXTERNAL_REPO_URL: ${{ secrets.EXTERNAL_REPO_URL }}
           EXTERNAL_REPO_TOKEN: ${{ secrets.EXTERNAL_REPO_TOKEN }}
@@ -27,7 +27,12 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git remote add external "https://x-access-token:${EXTERNAL_REPO_TOKEN}@${EXTERNAL_REPO_URL#https://}"
+          git remote add external "$EXTERNAL_REPO_URL"
 
-          git push external HEAD:master
-          git push external --tags
+          AUTH=$(printf 'oauth2:%s' "$EXTERNAL_REPO_TOKEN" | base64 -w0)
+
+          git -c http.extraheader="AUTHORIZATION: basic $AUTH" \
+            push external HEAD:refs/heads/master
+
+          git -c http.extraheader="AUTHORIZATION: basic $AUTH" \
+            push external --tags
