@@ -101,7 +101,7 @@ jobs:
           # Configure this action to upload to the existing draft
           # rather than creating/publishing another release.
   publish-release:
-    needs: build
+    needs: upload-assets
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
