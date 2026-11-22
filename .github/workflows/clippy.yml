@@ -14,7 +14,13 @@ permissions:
 
 jobs:
   clippy_check:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - name: Install dependencies
@@ -27,6 +33,30 @@ jobs:
               libtiff-dev \
               libconfig++-dev \
               libconfig-dev
+      - name: Setup OpenSSL
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          choco install openssl.light -y
+
+              $openssl = "$env:ProgramFiles\OpenSSL"
+
+              if (!(Test-Path "$openssl\include\openssl\ssl.h")) {
+                  throw "OpenSSL headers not found at $openssl"
+              }
+
+              echo "OPENSSL_DIR=$openssl" >> $env:GITHUB_ENV
+              echo "OPENSSL_LIB_DIR=$openssl\lib" >> $env:GITHUB_ENV
+              echo "OPENSSL_INCLUDE_DIR=$openssl\include" >> $env:GITHUB_ENV
+              echo "$openssl\bin" >> $env:GITHUB_PATH
+
+              Write-Host "OpenSSL installation verified:"
+              Get-ChildItem "$openssl\include\openssl" | Select-Object -First 5
+      - name: Setup OpenSSL
+        if: runner.os == 'macOS'
+        run: |
+            brew install openssl@3
+            echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
       - name: Run Clippy
         run: |
             git lfs pull

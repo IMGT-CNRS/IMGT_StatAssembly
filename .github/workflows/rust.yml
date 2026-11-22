@@ -21,15 +21,23 @@ permissions:
 jobs:
   create-release:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-      - uses: taiki-e/create-gh-release-action@v1
-        with:
-          token: ${{ secrets.TOKEN }}
-          generate_notes: true
-          overwrite: true
-          changelog: CHANGELOG.md
-          allow-missing-changelog: true
+
+      - name: Create draft release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+
+          gh release create "$TAG" \
+            --draft \
+            --generate-notes
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
   upload-assets:
     needs: create-release
@@ -45,49 +53,66 @@ jobs:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             build-tool: cargo-zigbuild
+
     runs-on: ${{ matrix.os }}
+
     steps:
-        - uses: actions/checkout@v4
-        - name: Install dependencies
-          if: runner.os == 'Linux'
-          run: |
-              sudo apt-get update
-              sudo apt-get -y install \
-                libfontconfig1-dev \
-                libharfbuzz-dev \
-                libtiff-dev \
-                libconfig++-dev \
-                libconfig-dev
-        - name: Setup OpenSSL
-          if: runner.os == 'Windows'
-          shell: powershell
-          run: |
-            choco install openssl.light -y
+      - uses: actions/checkout@v4
 
-                $openssl = "$env:ProgramFiles\OpenSSL"
+      - name: Install dependencies
+        if: runner.os == 'Linux'
+        run: |
+            sudo apt-get update
+            sudo apt-get -y install \
+              libfontconfig1-dev \
+              libharfbuzz-dev \
+              libtiff-dev \
+              libconfig++-dev \
+              libconfig-dev
+      - name: Setup OpenSSL
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          choco install openssl.light -y
 
-                if (!(Test-Path "$openssl\include\openssl\ssl.h")) {
-                    throw "OpenSSL headers not found at $openssl"
-                }
+              $openssl = "$env:ProgramFiles\OpenSSL"
 
-                echo "OPENSSL_DIR=$openssl" >> $env:GITHUB_ENV
-                echo "OPENSSL_LIB_DIR=$openssl\lib" >> $env:GITHUB_ENV
-                echo "OPENSSL_INCLUDE_DIR=$openssl\include" >> $env:GITHUB_ENV
-                echo "$openssl\bin" >> $env:GITHUB_PATH
+              if (!(Test-Path "$openssl\include\openssl\ssl.h")) {
+                  throw "OpenSSL headers not found at $openssl"
+              }
 
-                Write-Host "OpenSSL installation verified:"
-                Get-ChildItem "$openssl\include\openssl" | Select-Object -First 5
-        - name: Setup OpenSSL
-          if: runner.os == 'macOS'
-          run: |
-              brew install openssl@3
-              echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
-        - uses: taiki-e/upload-rust-binary-action@v1
-          with:
-            bin: IMGT_StatAssembly
-            include: LICENSE,README.md
-            target: ${{ matrix.target }}
-            archive: $bin-$tag-$target
-            tar: unix
-            zip: windows
-            token: ${{ secrets.GITHUB_TOKEN }}
+              echo "OPENSSL_DIR=$openssl" >> $env:GITHUB_ENV
+              echo "OPENSSL_LIB_DIR=$openssl\lib" >> $env:GITHUB_ENV
+              echo "OPENSSL_INCLUDE_DIR=$openssl\include" >> $env:GITHUB_ENV
+              echo "$openssl\bin" >> $env:GITHUB_PATH
+
+              Write-Host "OpenSSL installation verified:"
+              Get-ChildItem "$openssl\include\openssl" | Select-Object -First 5
+      - name: Setup OpenSSL
+        if: runner.os == 'macOS'
+        run: |
+            brew install openssl@3
+            echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
+
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: IMGT_StatAssembly
+          include: LICENSE,README.md
+          target: ${{ matrix.target }}
+          archive: $bin-$tag-$target
+          tar: unix
+          zip: windows
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Configure this action to upload to the existing draft
+          # rather than creating/publishing another release.
+  publish-release:
+    needs: upload-assets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.create-release.outputs.tag }}
+        run: |
+          gh release edit "$TAG" --draft=false
