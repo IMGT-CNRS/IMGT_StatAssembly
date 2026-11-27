@@ -32,7 +32,7 @@ use clap::{Parser, ValueEnum, crate_authors};
 use extended_htslib::bam::IndexedReader;
 use indicatif::ProgressBar;
 use itertools::Itertools;
-use num_traits::{SaturatingAdd, SaturatingSub};
+use num_traits::{CheckedAdd, CheckedSub, SaturatingAdd, SaturatingSub};
 use plotters::backend::{BitMapBackend, DrawingBackend, SVGBackend};
 use plotters::coord::Shift;
 use plotters::drawing::DrawingArea;
@@ -1253,24 +1253,9 @@ impl Alerting for Alertpos {
 /// let zeropos = Position::newfromzposition(0); //0 for 0-based is very first position
 /// assert_eq!(onepos,zeropos);
 /// ```
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub(crate) struct Position {
     position: i64,
-}
-impl PartialOrd for Position {
-    /// Returns the partial ordering of this value with another, if any.
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-impl Ord for Position {
-    /// Compares this value with another for total ordering.
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        if self.eq(other) {
-            return Equal;
-        }
-        self.getzbasedpos().cmp(&other.getzbasedpos())
-    }
 }
 impl Add for Position {
     type Output = Position;
@@ -1284,11 +1269,21 @@ impl SaturatingAdd for Position {
         Position::new(self.position.saturating_add(rhs.position))
     }
 }
+impl CheckedAdd for Position {
+    fn checked_add(&self, v: &Self) -> Option<Self> {
+        self.position.checked_add(v.position).map(Position::new)
+    }
+}
 impl Sub for Position {
     type Output = Position;
     /// Subtracts another value from this one.
     fn sub(self, rhs: Self) -> Self::Output {
         Position::new(self.position.sub(rhs.position))
+    }
+}
+impl CheckedSub for Position {
+    fn checked_sub(&self, v: &Self) -> Option<Self> {
+        self.position.checked_sub(v.position).map(Position::new)
     }
 }
 impl SaturatingSub for Position {
@@ -1309,13 +1304,13 @@ impl Serialize for Position {
 impl FromStr for Position {
     type Err = std::num::ParseIntError;
 
-    /// Parses a string into this type.
+    /// Parses a string (1-based) into this type.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Position::newfromoposition(s.parse()?))
     }
 }
 impl<'de> Deserialize<'de> for Position {
-    /// Deserializes a value of this type from the given deserializer.
+    /// Deserializes a value (1-based) of this type from the given deserializer.
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: de::Deserializer<'de>,
@@ -1344,11 +1339,12 @@ impl Position {
     }
     /// Returns the inclusive length between this position and another.
     pub(crate) fn length(&self, other: &Self) -> i64 {
-        let min = std::cmp::min(self.getzbasedpos(), other.getzbasedpos());
-        let max = std::cmp::max(self.getzbasedpos(), other.getzbasedpos());
+        let min = std::cmp::min(self, other);
+        let max = std::cmp::max(self, other);
         max.checked_sub(min)
-            .and_then(|f| f.checked_add(1))
-            .unwrap_or(0) //Calculate the length
+            .and_then(|f| f.checked_add(&Position::new(1)))
+            .unwrap_or(Position::new(0))
+            .getzbasedpos() //Calculate the length (+1 already added)
     }
     /// Returns the 0-based position.
     pub(crate) fn getzbasedpos(&self) -> i64 {
@@ -1362,7 +1358,7 @@ impl Position {
     pub(crate) fn newfromzposition(position: i64) -> Self {
         Self::new(position)
     }
-    /// Creates a position from a 1-based coordinate.
+    /// Creates a position from a 1-based coordinate. If position == 0, set to 0.
     pub(crate) fn newfromoposition(position: i64) -> Self {
         Self::new(position.saturating_sub(1))
     }
@@ -2950,7 +2946,7 @@ impl Ord for GeneInfosFinish {
     fn cmp(&self, other: &Self) -> Ordering {
         let a: &dyn GenesList = self;
         let b: &dyn GenesList = other;
-        a.cmp(b)
+        if a.eq(b) { Equal } else { a.cmp(b) }
     }
 }
 impl PartialOrd for GeneInfosFinish {
