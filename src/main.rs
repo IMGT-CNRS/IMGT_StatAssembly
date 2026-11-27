@@ -2424,7 +2424,7 @@ where
         loci.getcontig(),
         loci.gethaplotype()
     );
-    let mut size = 20; //Size between 12 and 20px depending of size of text
+    let mut size: u32 = 20; //Size between 12 and 20px depending of size of text
     while size > 12 {
         let length = root.estimate_text_size(&text, &("sans-serif", size).into_text_style(&root));
         if let Ok((calculatedwidth, _)) = length
@@ -2598,7 +2598,16 @@ where
     secondary
         .configure_mesh()
         .x_label_formatter(&|f| f.to_formatted_string(&Locale::en).to_string())
-        .x_desc("Genomic position (bp)")
+        .x_desc(format!(
+            "Genomic position (bp) - {}-{}/{}",
+            gene.getpositionstart()
+                .getobasedpos()
+                .to_formatted_string(&Locale::en),
+            gene.getpositionend()
+                .getobasedpos()
+                .to_formatted_string(&Locale::en),
+            gene.getstrand()
+        ))
         .y_desc("Reads count")
         .disable_x_mesh()
         .label_style(text_style.clone())
