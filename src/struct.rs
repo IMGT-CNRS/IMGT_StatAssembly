@@ -1344,7 +1344,7 @@ impl Position {
         max.checked_sub(min)
             .and_then(|f| f.checked_add(&Position::new(1)))
             .unwrap_or(Position::new(0))
-            .getobasedpos() //Calculate the length
+            .getzbasedpos() //Calculate the length (+1 already added)
     }
     /// Returns the 0-based position.
     pub(crate) fn getzbasedpos(&self) -> i64 {
