@@ -3241,7 +3241,7 @@ impl Ord for HashMapinfo {
         if self.eq(other) {
             return Equal;
         }
-        self.getmaxvalue().cmp(&other.getmaxvalue())
+        self.position.cmp(&other.position)
     }
 }
 impl HashMapinfo {

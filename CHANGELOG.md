@@ -1,3 +1,8 @@
+## v[2.1.7] - 2026-11-27
+
+- Fix allallelesblast
+- Fix Eq
+
 ## v[2.1.3] - 2026-11-20
 
 - Fix temp cachebypass
