@@ -452,15 +452,15 @@ pub(crate) fn apply_borne(
         block.insert(borne.clone());
     }
 }
-/// Groups BLAST hits into locus blocks per contig, uses bornes to delimit them if needed (depending on IMGT rules), and returns the best `LocusInfos` per haplotype.
-/// Returns None if failing.
+/// Groups BLAST hits into locus blocks per contig, uses bornes to delimit them if needed (depending on IMGT rules), and returns the best [LocusInfos] per haplotype.
+/// Returns [Option::None] if failing.
 ///
 /// Groups BLAST hits per (locus, contig) into "blocks" of continuous hits:
 /// a new block starts whenever the gap between two consecutive hits exceeds
-/// LOCUSSEPARATOR. IMGT "bornes" (locus boundary sequences) are then matched to
+/// [LOCUSSEPARATOR]. IMGT "bornes" (locus boundary sequences) are then matched to
 /// the first/last hit of each block; a borne *inside* the block range trims the
 /// block (`retain`), a borne just outside it is added to the block and extends
-/// the locus margins by BORNES. Finally each block becomes one LocusInfos on the
+/// the locus margins by [BORNES]. Finally each block becomes one [LocusInfos] on the
 /// primary haplotype, and on the alternate haplotype only if that contig is not
 /// already used by the primary — the contig name decides haplotype assignment.
 pub(crate) fn find_global_best_range(
