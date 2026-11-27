@@ -277,7 +277,7 @@ For a better overview of IMGT&reg; rules based on this analysis, check [IMGT&reg
 >
 > Criteria are as followed:
 >
-> * For locus: Number of reads ($x$) inside the window coverage ($m$) $max(10,\frac{m}{2})<x<2m$ and soft clips less than 40%. Telomeric region (10 kb) is not taken into account.
+> * For locus: For all position, overlapping reads number ($x$) satisfies the formula (with `m` the average coverage of reads on the assembly) $max(10,\frac{m}{2})<x<2m$ and soft clips less than 40%. Telomeric region (10 kb) is not taken into account.
 > * For genes: At least 10 matching reads and no suspicious or warning positions and soft clips less than 40%.
 
 *The threshold can be changed for the graphs but not for the validation (and therefore the color title and csv files).*
