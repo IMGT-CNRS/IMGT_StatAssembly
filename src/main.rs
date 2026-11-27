@@ -3076,7 +3076,7 @@ pub(crate) fn checknewversion() {
         }
     }
 }
-/// Is gene validated by IMGT criterias?
+/// Is gene validated by IMGT criteria?
 #[must_use]
 pub(crate) fn geneisokay(reads100m: usize, hash: &BTreeMap<Position, Posread>) -> OkStatus {
     if let Some(a) = hash
@@ -3121,7 +3121,7 @@ pub(crate) fn telomereposition(p: &Position, lengthloci: &Position) -> bool {
         < TELOMERESEP.try_into().unwrap_or(i64::MAX)
         || p.getobasedpos() < TELOMERESEP.try_into().unwrap_or(i64::MAX)
 }
-///Does locus is validated by IMGT criterias?
+///Does locus is validated by IMGT criteria?
 #[must_use]
 pub(crate) fn locusisokay(mean: u64, lengthloci: &Position, graph: &[&HashMapinfo]) -> OkStatus {
     //Between a minimum and a maximum number of reads

@@ -245,8 +245,8 @@ For each assembly (in the graph named readresult.png) and for each allele (if ap
 - *positionresult.csv* lists all the information of both graphs. However mismatches and misalign represents a number and not a rate as in the graph. The rate could be recalculated by dividing with the sum of reads in the column map60,map1 and map0.
 - If gene list is provided:
   - *allele_confidence.csv*: List all suspicious (shown as ! in Excel and `rgb(239, 83, 80)` on charts) and warning positions (shown as ~ in Excel and `rgb(255, 183, 77)` on charts). By default:
-    - Warning positions (`rgb(255, 183, 77)`) are positions where less than x reads (parameter: `minreads` default 10) are present and/or the rate of reads matching the base compared to the number of reads present at this position is above the suspicious position rate and below the treeshold (parameter: `percentwarning` default 0.8).
-    - Suspicious positions (`rgb(239, 83, 80)`) are positions where the rate of reads matching the base compared to the number of reads present at this position is less than the treeshold (parameter: `percentalerting` default 0.6).
+    - Warning positions (`rgb(255, 183, 77)`) are positions where less than x reads (parameter: `minreads` default 10) are present and/or the rate of reads matching the base compared to the number of reads present at this position is above the suspicious position rate and below the threshold (parameter: `percentwarning` default 0.8).
+    - Suspicious positions (`rgb(239, 83, 80)`) are positions where the rate of reads matching the base compared to the number of reads present at this position is less than the threshold (parameter: `percentalerting` default 0.6).
   - A folder `gene_primary` and/or `gene_alternate` containing a graph for each gene, with number of total reads for each position (total reads), reads without indels (sequence match) and sequence match. The number of reads that covers the entire region with 100% match are displayed with the `rgb(0, 0, 0)` (black) curve. The average ratio of soft clips is also shown (black histogram). The number of real reads based on the phred score is also shown with the `rgb(121, 85, 72)` (brown) curve. Phred score is displayed at the lower panel.
   - *geneanalysis.csv*: List all genes, their chromosome, strand, start and end. It displays the average read coverage (the ratio of the average length of the reads covering this zone compared to the length of the given region), the number of reads on this region. Then for each position, the number of reads in total with the number of reads with identical sequence (=), ones with substitutions (X) and ones with deletions (D) or insertions (I) and the ratio of reads with soft clips at that position (S). Readsfull column counts the number of reads spanning the entire region, whereas reads100 and reads100m shows respectively the number of reads matching without indels or with perfect match the full region. Realreads100m is a score of perfect match reads based on their phred score. Coveragex shows how much position are covered by at least x reads (default: 10, parameter: `coverage`).
 - *newloc.csv*: contains locus information with status (Accepted/Rejected).
@@ -270,12 +270,12 @@ For each read matching perfectly the gene, a score is assigned. The sum is the r
 For a better overview of IMGT&reg; rules based on this analysis, check [IMGT&reg; assembly quality rules](https://imgt.org/IMGTScientificChart/Assemblies/IMGTassemblyquality.php).
 
 > [!NOTE]
-> For `readresult.png` and each allele graph, the color of the graph would indicate if the locus and/or gene meets IMGT&reg; criterias.
+> For `readresult.png` and each allele graph, the color of the graph would indicate if the locus and/or gene meets IMGT&reg; criteria.
 >
 > - [x] ![#c5f015](https://placehold.co/15x15/c5f015/c5f015.png) Green for validation
 > - [ ] ![#f03c15](https://placehold.co/15x15/f03c15/f03c15.png) Red for rejection
 >
-> Criterias are as followed:
+> Criteria are as followed:
 >
 > * For locus: Number of reads ($x$) inside the window coverage ($m$) $max(10,\frac{m}{2})<x<2m$ and soft clips less than 40%. Telomeric region (10 kb) is not taken into account.
 > * For genes: At least 10 matching reads and no suspicious or warning positions and soft clips less than 40%.

@@ -39,7 +39,7 @@ use plotters::drawing::DrawingArea;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, de};
 use serde_with::serde_as;
-use std::cmp::Ordering;
+use std::cmp::Ordering::{self, Equal};
 use std::collections::BTreeMap;
 use std::io::ErrorKind::{self, InvalidInput};
 use std::num::NonZero;
@@ -491,6 +491,9 @@ impl PartialOrd for LocusHaplo {
 impl Ord for LocusHaplo {
     /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> Ordering {
+        if self.eq(other) {
+            return Equal;
+        }
         match self.getlocus().cmp(other.getlocus()) {
             Ordering::Equal => self.haplo.cmp(&other.haplo),
             ord => ord,
@@ -1263,6 +1266,9 @@ impl PartialOrd for Position {
 impl Ord for Position {
     /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if self.eq(other) {
+            return Equal;
+        }
         self.getzbasedpos().cmp(&other.getzbasedpos())
     }
 }
@@ -1526,6 +1532,9 @@ impl PartialOrd for Blastmatch {
 impl Ord for Blastmatch {
     /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> Ordering {
+        if self.eq(other) {
+            return Equal;
+        }
         match self.sseqid.cmp(&other.sseqid) {
             std::cmp::Ordering::Equal => match self.sstart.cmp(&other.sstart) {
                 std::cmp::Ordering::Equal => self.send.cmp(&other.send).reverse(),
@@ -2536,6 +2545,9 @@ impl Ord for GeneInfos {
             },
             ord => ord,
         } */
+        if self.eq(other) {
+            return Equal;
+        }
         match self.chromosome.cmp(&other.chromosome) {
             std::cmp::Ordering::Equal => match self.start.cmp(&other.start) {
                 std::cmp::Ordering::Equal => self.end.cmp(&other.end).reverse(),
@@ -2673,6 +2685,9 @@ impl PartialEq for Genehit {
 impl Ord for Genehit {
     /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> Ordering {
+        if self.eq(other) {
+            return Equal;
+        }
         self.geneinfo.cmp(&other.geneinfo)
     }
 }
@@ -2842,6 +2857,9 @@ impl GenesList for GeneInfosFinish {
 impl Ord for dyn GenesList {
     /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if self.eq(other) {
+            return Equal;
+        }
         match self.getchromosome().cmp(other.getchromosome()) {
             core::cmp::Ordering::Equal => {}
             ord => return ord,
@@ -3112,6 +3130,9 @@ impl Serialize for LocusInfos {
 impl Ord for LocusInfos {
     /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if self.eq(other) {
+            return Equal;
+        }
         self.locusinfo.cmp(&other.locusinfo)
     }
 }
@@ -3221,7 +3242,10 @@ impl PartialOrd for HashMapinfo {
 impl Ord for HashMapinfo {
     /// Compares this value with another for total ordering.
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.getmaxvalue().cmp(&other.getmaxvalue())
+        if self.eq(other) {
+            return Equal;
+        }
+        self.position.cmp(&other.position)
     }
 }
 impl HashMapinfo {
